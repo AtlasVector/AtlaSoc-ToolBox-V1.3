@@ -391,110 +391,147 @@ function renderVT(d) {
 }
 
 function renderAbuse(d) {
+  const score = d.abuseScore ?? 0;
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <div style={{display:'flex',alignItems:'center',gap:20}}>
-        <ScoreRing score={d.abuseScore} label="Abuse Score"/>
+        <ScoreRing score={score} label="Abuse Score"/>
         <div style={{flex:1}}>
-          <InfoRow label="Country" value={d.country}/>
-          <InfoRow label="ISP" value={d.isp}/>
-          <InfoRow label="Usage Type" value={d.usageType}/>
-          <InfoRow label="Total Reports" value={d.totalReports} mono/>
-          <InfoRow label="Distinct Users" value={d.numDistinctUsers} mono/>
+          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.isp && <InfoRow label="ISP" value={d.isp}/>}
+          {d.usageType && <InfoRow label="Usage Type" value={d.usageType}/>}
+          {d.totalReports != null && <InfoRow label="Total Reports" value={d.totalReports} mono/>}
+          {d.numDistinctUsers != null && <InfoRow label="Distinct Users" value={d.numDistinctUsers} mono/>}
           {d.lastReported && <InfoRow label="Last Reported" value={d.lastReported} mono/>}
         </div>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {d.isWhitelisted && <Tag text="whitelisted"/>}
         {d.tor && <Tag text="TOR exit node" warn/>}
-        {d.abuseScore > 80 && <Tag text="high confidence" danger/>}
+        {score > 80 && <Tag text="high confidence" danger/>}
       </div>
     </div>
   );
 }
 
 function renderShodan(d) {
+  if (!d.found) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>📡</div><div>No Shodan data found for this IP</div></div>;
+  const ports = d.ports || [];
+  const hostnames = d.hostnames || [];
+  const vulns = d.vulns || [];
+  const tags = d.tags || [];
+  const services = d.services || [];
   return (
     <div>
-      <div style={{marginBottom:12}}>
+      {ports.length > 0 && <div style={{marginBottom:12}}>
         <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Open Ports</span>
         <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}}>
-          {d.ports.map(p=><span key={p} style={{padding:'3px 10px',borderRadius:4,background:'var(--surface3)',fontFamily:'var(--mono)',fontSize:12,color:p===3389||p===23?'var(--danger)':p===22||p===21?'var(--amber)':'var(--text)'}}>{p}</span>)}
+          {ports.map(p=><span key={p} style={{padding:'3px 10px',borderRadius:4,background:'var(--surface3)',fontFamily:'var(--mono)',fontSize:12,color:p===3389||p===23?'var(--danger)':p===22||p===21?'var(--amber)':'var(--text)'}}>{p}</span>)}
         </div>
-      </div>
-      <InfoRow label="ASN" value={d.asn} mono/>
-      <InfoRow label="Organization" value={d.asnOrg||d.org}/>
-      <InfoRow label="Country" value={d.country}/>
+      </div>}
+      {d.asn && <InfoRow label="ASN" value={d.asn} mono/>}
+      {(d.org||d.isp) && <InfoRow label="Organization" value={d.org||d.isp}/>}
+      {d.country && <InfoRow label="Country" value={d.country}/>}
+      {d.city && <InfoRow label="City" value={d.city}/>}
       {d.os && <InfoRow label="OS" value={d.os}/>}
-      {d.hostnames.map((h,i)=><InfoRow key={i} label={i===0?'Hostname':''} value={h} mono/>)}
-      <InfoRow label="Last Seen" value={d.lastSeen} mono/>
-      {d.vulns.length > 0 && <div style={{marginTop:12}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Vulnerabilities</span><div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:6}}>{d.vulns.map(v=><Tag key={v} text={v} danger/>)}</div></div>}
+      {hostnames.map((h,i)=><InfoRow key={i} label={i===0?'Hostname':''} value={h} mono/>)}
+      {d.lastSeen && <InfoRow label="Last Seen" value={d.lastSeen} mono/>}
+      {vulns.length > 0 && <div style={{marginTop:12}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Vulnerabilities</span><div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:6}}>{vulns.map(v=><Tag key={v} text={v} danger/>)}</div></div>}
+      {services.length > 0 && <div style={{marginTop:12}}>
+        <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Services</span>
+        {services.map((s,i)=><div key={i} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+          <span style={{fontFamily:'var(--mono)',color:'var(--accent)',width:50,flexShrink:0}}>{s.port}/{s.transport}</span>
+          <span style={{color:'var(--text-dim)'}}>{[s.product,s.version].filter(Boolean).join(' ')||'—'}</span>
+        </div>)}
+      </div>}
+      {tags.length > 0 && <div style={{marginTop:12,display:'flex',gap:4,flexWrap:'wrap'}}>{tags.map(t=><Tag key={t} text={t}/>)}</div>}
     </div>
   );
 }
 
 function renderOTX(d) {
+  const pulses = d.pulses ?? 0;
+  const threatScore = d.threatScore ?? 0;
+  const malwareFamilies = d.malwareFamilies || [];
+  const adversaries = d.adversaries || [];
+  const categories = d.categories || [];
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <div style={{display:'flex',gap:20,alignItems:'center'}}>
-        <ScoreRing score={d.pulses} max={50} label="Pulses" color={d.pulses>10?'var(--danger)':d.pulses>2?'var(--amber)':'var(--safe)'}/>
-        <ScoreRing score={d.threatScore} max={10} label="Threat Score" color={d.threatScore>7?'var(--danger)':d.threatScore>4?'var(--amber)':'var(--safe)'}/>
+        <ScoreRing score={pulses} max={50} label="Pulses" color={pulses>10?'var(--danger)':pulses>2?'var(--amber)':'var(--safe)'}/>
+        <ScoreRing score={threatScore} max={10} label="Threat Score" color={threatScore>7?'var(--danger)':threatScore>4?'var(--amber)':'var(--safe)'}/>
         <div style={{flex:1}}>
-          <InfoRow label="First Seen" value={d.firstSeen} mono/>
-          <InfoRow label="Last Seen" value={d.lastSeen} mono/>
-          <InfoRow label="Related IoCs" value={d.relatedIndicators} mono/>
+          {d.firstSeen && <InfoRow label="First Seen" value={d.firstSeen} mono/>}
+          {d.lastSeen && <InfoRow label="Last Seen" value={d.lastSeen} mono/>}
+          {d.relatedIndicators != null && <InfoRow label="Related IoCs" value={d.relatedIndicators} mono/>}
         </div>
       </div>
-      {d.malwareFamilies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Malware Families</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{d.malwareFamilies.map(m=><Tag key={m} text={m} danger/>)}</div></div>}
-      {d.adversaries.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Adversaries</span><div style={{display:'flex',gap:4,marginTop:6}}>{d.adversaries.map(a=><Tag key={a} text={a} danger/>)}</div></div>}
-      {d.categories.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{d.categories.map(c=><Tag key={c} text={c} warn/>)}</div></div>}
+      {malwareFamilies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Malware Families</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{malwareFamilies.map(m=><Tag key={m} text={m} danger/>)}</div></div>}
+      {adversaries.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Adversaries</span><div style={{display:'flex',gap:4,marginTop:6}}>{adversaries.map(a=><Tag key={a} text={a} danger/>)}</div></div>}
+      {categories.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{categories.map(c=><Tag key={c} text={c} warn/>)}</div></div>}
+      {malwareFamilies.length===0 && adversaries.length===0 && pulses===0 && <div style={{color:'var(--text-muted)',fontSize:13,padding:'8px 0'}}>No threat intelligence pulses found for this indicator.</div>}
     </div>
   );
 }
 
 function renderURLScan(d) {
+  if (!d.found && !d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>🌐</div><div>No URLScan results found for this indicator</div></div>;
+  if (d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>⏳</div><div style={{fontWeight:600,marginBottom:4}}>Scan submitted</div><div style={{fontSize:12,marginBottom:12}}>{d.message}</div>{d.reportUrl&&<a href={d.reportUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>View results when ready ↗</a>}</div>;
+  const technologies = d.technologies || [];
+  const verdicts = d.verdicts || {};
+  const isMalicious = verdicts.malicious;
+  const isSuspicious = verdicts.suspicious;
   return (
     <div>
       <div style={{display:'flex',gap:20,marginBottom:16,alignItems:'flex-start'}}>
         <div style={{flex:'none',width:180,height:100,background:'var(--surface3)',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid var(--border2)',overflow:'hidden',position:'relative'}}>
-          <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:11}}>
-            <div style={{fontSize:20,marginBottom:4}}>🖥</div>
-            <div>Screenshot</div>
-            <div style={{fontSize:10,marginTop:2}}>Live scan required</div>
-          </div>
+          {d.screenshot
+            ? <img src={d.screenshot} alt="screenshot" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            : <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:11}}>
+                <div style={{fontSize:20,marginBottom:4}}>🖥</div>
+                <div>Screenshot</div>
+                <div style={{fontSize:10,marginTop:2}}>Live scan required</div>
+              </div>}
         </div>
         <div style={{flex:1}}>
-          <InfoRow label="Resolved IP" value={d.ip} mono/>
-          <InfoRow label="Country" value={d.country}/>
-          <InfoRow label="Server" value={d.server} mono/>
-          <InfoRow label="Page Title" value={d.title}/>
-          <InfoRow label="Domain Age" value={d.domainAge}/>
+          {d.ip && <InfoRow label="Resolved IP" value={d.ip} mono/>}
+          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.server && <InfoRow label="Server" value={d.server} mono/>}
+          {d.title && <InfoRow label="Page Title" value={d.title}/>}
+          {d.domainAge && <InfoRow label="Domain Age" value={d.domainAge}/>}
+          {d.reportUrl && <InfoRow label="Full Report" value={<a href={d.reportUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>Open in URLScan ↗</a>}/>}
         </div>
       </div>
-      {d.technologies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Technologies Detected</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{d.technologies.map(t=><Tag key={t} text={t}/>)}</div></div>}
+      {technologies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Technologies Detected</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{technologies.map(t=><Tag key={t} text={t}/>)}</div></div>}
       <div style={{display:'flex',gap:8,marginTop:12}}>
-        {d.verdicts.malicious && <Tag text="malicious verdict" danger/>}
-        {d.verdicts.suspicious && <Tag text="suspicious verdict" warn/>}
-        {!d.verdicts.malicious && !d.verdicts.suspicious && <Tag text="clean verdict"/>}
+        {isMalicious && <Tag text="malicious verdict" danger/>}
+        {isSuspicious && <Tag text="suspicious verdict" warn/>}
+        {!isMalicious && !isSuspicious && <Tag text="clean verdict"/>}
       </div>
     </div>
   );
 }
 
 function renderWHOIS(d) {
+  if (d.error) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{color:'var(--amber)',fontWeight:600,marginBottom:4}}>WHOIS lookup failed</div><div style={{fontSize:12}}>{d.error}</div></div>;
+  const nameservers = d.nameservers || [];
+  const status = Array.isArray(d.status) ? d.status : [d.status].filter(Boolean);
   return (
     <div>
+      {d.handle && <InfoRow label="Handle" value={d.handle} mono/>}
+      {d.name && <InfoRow label="Name" value={d.name}/>}
       {d.registrar && <InfoRow label="Registrar" value={d.registrar}/>}
       {d.privacyProtected && <InfoRow label="Privacy" value="Protected (Redacted)" color="var(--text-muted)"/>}
-      <InfoRow label="Created" value={d.created} mono/>
-      <InfoRow label="Updated" value={d.updated} mono/>
+      {d.created && <InfoRow label="Created" value={d.created} mono/>}
+      {d.updated && <InfoRow label="Updated" value={d.updated} mono/>}
       {d.expires && <InfoRow label="Expires" value={d.expires} mono/>}
-      <InfoRow label="Country" value={d.country}/>
+      {d.country && <InfoRow label="Country" value={d.country}/>}
       {d.asn && <InfoRow label="ASN" value={d.asn} mono/>}
       {d.cidr && <InfoRow label="CIDR" value={d.cidr} mono/>}
-      {d.asnOrg && <InfoRow label="ASN Org" value={d.asnOrg}/>}
-      {d.nameservers && d.nameservers.map((ns,i)=><InfoRow key={i} label={i===0?'Nameservers':''} value={ns} mono/>)}
-      <InfoRow label="Status" value={d.status} mono/>
+      {d.startAddress && <InfoRow label="IP Range Start" value={d.startAddress} mono/>}
+      {d.endAddress && <InfoRow label="IP Range End" value={d.endAddress} mono/>}
+      {nameservers.map((ns,i)=><InfoRow key={i} label={i===0?'Nameservers':''} value={ns} mono/>)}
+      {status.length > 0 && <InfoRow label="Status" value={status.join(', ')} mono/>}
     </div>
   );
 }
@@ -533,15 +570,22 @@ function renderCVE(d) {
 }
 
 function renderSource(d) {
-  if (d.source === 'VirusTotal') return renderVT(d);
-  if (d.source === 'AbuseIPDB') return renderAbuse(d);
-  if (d.source === 'Shodan') return renderShodan(d);
-  if (d.source === 'AlienVault OTX') return renderOTX(d);
-  if (d.source === 'URLScan.io') return renderURLScan(d);
-  if (d.source === 'WHOIS / RDAP') return renderWHOIS(d);
-  if (d.source === 'MalwareBazaar') return renderMalwareBazaar(d);
-  if (d.source === 'CVE Details') return renderCVE(d);
-  return null;
+  try {
+    if (d.source === 'VirusTotal') return renderVT(d);
+    if (d.source === 'AbuseIPDB') return renderAbuse(d);
+    if (d.source === 'Shodan') return renderShodan(d);
+    if (d.source === 'AlienVault OTX') return renderOTX(d);
+    if (d.source === 'URLScan.io') return renderURLScan(d);
+    if (d.source === 'WHOIS / RDAP') return renderWHOIS(d);
+    if (d.source === 'MalwareBazaar') return renderMalwareBazaar(d);
+    if (d.source === 'CVE Details') return renderCVE(d);
+    return null;
+  } catch(e) {
+    return <div style={{padding:16,color:'var(--text-muted)',fontSize:13,background:'var(--surface3)',borderRadius:8}}>
+      <div style={{color:'var(--amber)',fontWeight:600,marginBottom:6}}>⚠ Could not render {d.source} results</div>
+      <div style={{fontFamily:'var(--mono)',fontSize:11,opacity:0.7}}>{e.message}</div>
+    </div>;
+  }
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
