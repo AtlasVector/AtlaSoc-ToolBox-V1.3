@@ -1,21 +1,3 @@
-/**
- * AtlaSoc Kit — Cloudflare Pages Function
- * File: functions/api/[[route]].js
- *
- * Handles all /api/* routes server-side.
- * API keys live ONLY in Cloudflare Pages environment variables — never in the browser.
- *
- * Set these in: Cloudflare Dashboard → Pages → atlasoc → Settings → Environment Variables
- *   VT_API_KEY        — VirusTotal
- *   ABUSEIPDB_KEY     — AbuseIPDB
- *   SHODAN_KEY        — Shodan (optional, paid)
- *   OTX_KEY           — AlienVault OTX (optional, works without)
- *   URLSCAN_KEY       — URLScan.io (optional, works without)
- *
- * No API_SECRET needed — same-domain requests can't be forged by third parties.
- */
-
-// ─── Rate limiting (per Cloudflare Worker instance) ───────────────────────────
 const rateLimitMap = new Map();
 function isRateLimited(ip, maxPerMinute = 30) {
   const now = Date.now();
@@ -30,15 +12,35 @@ function isRateLimited(ip, maxPerMinute = 30) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+const SECURITY_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+};
+
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(JSON.stringify(data), { status, headers: SECURITY_HEADERS });
 }
 function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
+
+// Returns an AbortSignal that times out after `ms` milliseconds.
+function timeout(ms) {
+  return AbortSignal.timeout ? AbortSignal.timeout(ms) : (() => {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), ms);
+    return ctrl.signal;
+  })();
+}
+
+// Valid indicator types accepted by each route handler.
+const VALID_TYPES = new Set([
+  'ip', 'ip6', 'domain', 'url',
+  'hash-md5', 'hash-sha1', 'hash-sha256',
+  'email', 'filename',
+]);
 
 // ─── Source handlers ──────────────────────────────────────────────────────────
 
@@ -58,10 +60,13 @@ async function handleVirusTotal(ioc, type, env) {
     const id = type === 'email' ? ioc.split('@')[1] : ioc;
     endpoint = `https://www.virustotal.com/api/v3/${vtType}/${encodeURIComponent(id)}`;
   }
-  const res = await fetch(endpoint, { headers: { 'x-apikey': env.VT_API_KEY } });
+  const res = await fetch(endpoint, {
+    headers: { 'x-apikey': env.VT_API_KEY },
+    signal: timeout(8000),
+  });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    return { error: body?.error?.message || `VT ${res.status}` };
+    // Don't leak quota/auth error messages from the upstream API to the client.
+    return { error: `VirusTotal returned ${res.status}` };
   }
   const data = await res.json();
   const stats = data?.data?.attributes?.last_analysis_stats || {};
@@ -87,9 +92,9 @@ async function handleAbuseIPDB(ip, env) {
   if (!env.ABUSEIPDB_KEY) return { error: 'AbuseIPDB not configured' };
   const res = await fetch(
     `https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90&verbose`,
-    { headers: { Key: env.ABUSEIPDB_KEY, Accept: 'application/json' } }
+    { headers: { Key: env.ABUSEIPDB_KEY, Accept: 'application/json' }, signal: timeout(8000) }
   );
-  if (!res.ok) return { error: `AbuseIPDB ${res.status}` };
+  if (!res.ok) return { error: `AbuseIPDB returned ${res.status}` };
   const { data } = await res.json();
   return {
     source: 'AbuseIPDB',
@@ -109,9 +114,13 @@ async function handleAbuseIPDB(ip, env) {
 
 async function handleShodan(ip, env) {
   if (!env.SHODAN_KEY) return { error: 'Shodan not configured' };
-  const res = await fetch(`https://api.shodan.io/shodan/host/${encodeURIComponent(ip)}?key=${env.SHODAN_KEY}`);
+  // Shodan host endpoint only accepts the key as a query parameter (no header support).
+  const res = await fetch(
+    `https://api.shodan.io/shodan/host/${encodeURIComponent(ip)}?key=${env.SHODAN_KEY}`,
+    { signal: timeout(8000) }
+  );
   if (res.status === 404) return { source: 'Shodan', found: false };
-  if (!res.ok) return { error: `Shodan ${res.status}` };
+  if (!res.ok) return { error: `Shodan returned ${res.status}` };
   const data = await res.json();
   return {
     source: 'Shodan', found: true,
@@ -135,9 +144,9 @@ async function handleOTX(ioc, type, env) {
   const otxType = otxTypeMap[type] || 'domain';
   const res = await fetch(
     `https://otx.alienvault.com/api/v1/indicators/${otxType}/${encodeURIComponent(ioc)}/general`,
-    { headers: key ? { 'X-OTX-API-KEY': key } : {} }
+    { headers: key ? { 'X-OTX-API-KEY': key } : {}, signal: timeout(8000) }
   );
-  if (!res.ok) return { error: `OTX ${res.status}` };
+  if (!res.ok) return { error: `OTX returned ${res.status}` };
   const data = await res.json();
   return {
     source: 'AlienVault OTX',
@@ -157,9 +166,9 @@ async function handleURLScan(ioc, type, env) {
   const q = type === 'domain' ? `domain:${ioc}` : `page.url:${ioc}`;
   const searchRes = await fetch(
     `https://urlscan.io/api/v1/search/?q=${encodeURIComponent(q)}&size=1`,
-    { headers: key ? { 'API-Key': key } : {} }
+    { headers: key ? { 'API-Key': key } : {}, signal: timeout(8000) }
   );
-  if (!searchRes.ok) return { error: `URLScan ${searchRes.status}` };
+  if (!searchRes.ok) return { error: `URLScan returned ${searchRes.status}` };
   const searchData = await searchRes.json();
   const hit = searchData?.results?.[0];
   if (!hit) return { source: 'URLScan.io', found: false };
@@ -180,7 +189,6 @@ async function handleWHOIS(ioc, type) {
   const domain = type === 'email' ? ioc.split('@')[1] : ioc;
   const isIP = type === 'ip' || type === 'ip6';
 
-  // Try multiple RDAP endpoints in order
   const endpoints = isIP ? [
     `https://rdap.org/ip/${encodeURIComponent(ioc)}`,
     `https://rdap.arin.net/registry/ip/${encodeURIComponent(ioc)}`,
@@ -194,7 +202,11 @@ async function handleWHOIS(ioc, type) {
   let data = null;
   for (const endpoint of endpoints) {
     try {
-      const res = await fetch(endpoint, { headers: { Accept: 'application/json' }, cf: { connectTimeoutMs: 4000 } });
+      const res = await fetch(endpoint, {
+        headers: { Accept: 'application/json' },
+        cf: { connectTimeoutMs: 4000 },
+        signal: timeout(6000),
+      });
       if (res.ok) { data = await res.json(); break; }
     } catch { continue; }
   }
@@ -222,8 +234,9 @@ async function handleMalwareBazaar(hash) {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `query=get_info&hash=${encodeURIComponent(hash)}`,
+    signal: timeout(8000),
   });
-  if (!res.ok) return { error: `MalwareBazaar ${res.status}` };
+  if (!res.ok) return { error: `MalwareBazaar returned ${res.status}` };
   const data = await res.json();
   if (data.query_status !== 'ok') return { source: 'MalwareBazaar', found: false };
   const s = data.data?.[0];
@@ -253,6 +266,13 @@ export async function onRequest({ request, env }) {
   const type   = url.searchParams.get('type');
 
   if (!ioc || !type) return err('Missing params: ioc, type');
+
+  // Enforce maximum indicator length before further processing.
+  if (ioc.length > 2048) return err('Indicator too long');
+
+  // Reject any type value not in our known set.
+  if (!VALID_TYPES.has(type)) return err('Invalid type');
+
   if (!/^[a-zA-Z0-9._:/@%+=?&\-[\]{}]+$/.test(ioc)) return err('Invalid indicator');
 
   try {
@@ -264,7 +284,7 @@ export async function onRequest({ request, env }) {
       case 'urlscan': return json(await handleURLScan(ioc, type, env));
       case 'whois':   return json(await handleWHOIS(ioc, type));
       case 'bazaar':  return json(await handleMalwareBazaar(ioc));
-      case 'health':  return json({ status: 'ok', ts: Date.now() });
+      case 'health':  return json({ status: 'ok' });
       default:        return err('Not found', 404);
     }
   } catch (e) {
