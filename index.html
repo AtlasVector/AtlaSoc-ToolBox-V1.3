@@ -358,20 +358,32 @@ const Tag = ({text, danger, warn}) => (
 
 // ─── Source panel renderers ───────────────────────────────────────────────────
 function renderVT(d) {
+  const score = d.reputation ?? d.communityScore ?? null;
+  const harmless = d.harmless ?? 0;
+  const suspicious = d.suspicious ?? 0;
+  const undetected = d.undetected ?? 0;
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <DetectionBar detected={d.detected} total={d.total}/>
+      {(harmless > 0 || suspicious > 0 || undetected > 0) && (
+        <div style={{display:'flex',gap:12}}>
+          {harmless > 0 && <span style={{fontSize:12,color:'var(--safe)'}}>✓ {harmless} harmless</span>}
+          {suspicious > 0 && <span style={{fontSize:12,color:'var(--amber)'}}>⚠ {suspicious} suspicious</span>}
+          {undetected > 0 && <span style={{fontSize:12,color:'var(--text-muted)'}}>— {undetected} undetected</span>}
+        </div>
+      )}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <div>
           {d.fileType && <InfoRow label="File Type" value={d.fileType}/>}
           {d.fileSize && <InfoRow label="File Size" value={d.fileSize}/>}
           {d.firstSeen && <InfoRow label="First Seen" value={d.firstSeen} mono/>}
-          <InfoRow label="Last Analysis" value={d.lastAnalysis} mono/>
-          <InfoRow label="Community Score" value={d.communityScore > 0 ? `+${d.communityScore}` : String(d.communityScore)} color={d.communityScore>0?'var(--safe)':'var(--danger)'}/>
+          {d.lastAnalysis && <InfoRow label="Last Analysis" value={d.lastAnalysis} mono/>}
+          {score != null && <InfoRow label="Reputation Score" value={score > 0 ? `+${score}` : String(score)} color={score>0?'var(--safe)':score<0?'var(--danger)':'var(--text-muted)'}/>}
+          {d.permalink && <InfoRow label="Full Report" value={<a href={d.permalink} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>Open in VirusTotal ↗</a>}/>}
         </div>
         <div>
-          {d.categories.length > 0 && <div style={{marginBottom:8}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.categories.map(c=><Tag key={c} text={c} danger/>)}</div></div>}
-          {d.tags.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Tags</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.tags.map(t=><Tag key={t} text={t} danger={t!=='clean'}/>)}</div></div>}
+          {d.categories?.length > 0 && <div style={{marginBottom:8}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.categories.map(c=><Tag key={c} text={c} danger/>)}</div></div>}
+          {d.tags?.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Tags</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.tags.map(t=><Tag key={t} text={t} danger={t!=='clean'}/>)}</div></div>}
         </div>
       </div>
     </div>
@@ -615,26 +627,31 @@ function App() {
   const isSplit = layout === 'split';
 
   // ── Header ──────────────────────────────────────────────────────────────────
+  const resetHome = () => { setResults(null); setBulkResults(null); setQuery(''); setBulkText(''); setLoading(false); };
+
+  const Btn = ({onClick, children, active, accent: isAccent}) => (
+    <button onClick={onClick} style={{padding:'6px 13px',borderRadius:6,background:active||isAccent?`${accent}22`:'var(--surface2)',color:active||isAccent?accent:'var(--text-dim)',border:`1px solid ${active||isAccent?accent+'50':'var(--border2)'}`,fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:5,transition:'all 0.15s',letterSpacing:'0.01em'}}>
+      {children}
+    </button>
+  );
+
   const header = (
-    <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:`${isCompact?10:14}px 20px`,background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0,zIndex:10}}>
-      <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <div style={{width:30,height:30,borderRadius:7,background:`linear-gradient(135deg,${accent},${accent}99)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,boxShadow:`0 0 12px ${accent}40`}}>⚡</div>
-        <div>
-          <div style={{fontWeight:700,fontSize:15,letterSpacing:'-0.02em',lineHeight:1}}>AtlaSoc <span style={{color:accent}}>Kit</span></div>
-          <div style={{fontSize:10,color:'var(--text-muted)',letterSpacing:'0.05em',textTransform:'uppercase'}}>Threat Intelligence</div>
+    <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:`${isCompact?10:13}px 20px`,background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0,zIndex:10}}>
+      <button onClick={resetHome} style={{display:'flex',alignItems:'center',gap:10,background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:8,transition:'background 0.15s'}}>
+        <div style={{width:32,height:32,borderRadius:8,background:`linear-gradient(135deg,${accent},${accent}88)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,boxShadow:`0 0 14px ${accent}50`,flexShrink:0}}>⚡</div>
+        <div style={{textAlign:'left'}}>
+          <div style={{fontWeight:700,fontSize:15,letterSpacing:'-0.02em',lineHeight:1,color:'var(--text)'}}>AtlaSoc <span style={{color:accent}}>Kit</span></div>
+          <div style={{fontSize:10,color:'var(--text-muted)',letterSpacing:'0.06em',textTransform:'uppercase',marginTop:1}}>Threat Intelligence</div>
         </div>
-      </div>
-      <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <button onClick={()=>setBulkMode(b=>!b)} style={{padding:'5px 12px',borderRadius:6,background:bulkMode?`${accent}18`:'var(--surface2)',color:bulkMode?accent:'var(--text-muted)',border:`1px solid ${bulkMode?accent+'40':'var(--border)'}`,fontSize:12,fontWeight:500,transition:'all 0.2s'}}>
-          {bulkMode ? '✦ Bulk ON' : '⬛ Single'}
-        </button>
-        {(results || bulkResults) && (
-          <>
-            <button onClick={exportJSON} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface2)',color:'var(--text-muted)',border:'1px solid var(--border)',fontSize:12,fontWeight:500}}>↓ JSON</button>
-            <button onClick={exportPDF} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface2)',color:'var(--text-muted)',border:'1px solid var(--border)',fontSize:12,fontWeight:500}}>⎙ PDF</button>
-          </>
-        )}
-        <button onClick={()=>setTweak('theme',theme==='dark'?'light':'dark')} style={{width:32,height:32,borderRadius:6,background:'var(--surface2)',border:'1px solid var(--border)',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      </button>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {hasResult && <Btn onClick={resetHome}>⌂ Home</Btn>}
+        <Btn onClick={()=>setBulkMode(b=>!b)} active={bulkMode}>{bulkMode?'⊞ Bulk':'⊟ Single'}</Btn>
+        {hasResult && <>
+          <Btn onClick={exportJSON}>↓ JSON</Btn>
+          <Btn onClick={exportPDF}>⎙ PDF</Btn>
+        </>}
+        <button onClick={()=>setTweak('theme',theme==='dark'?'light':'dark')} style={{width:34,height:34,borderRadius:7,background:'var(--surface2)',border:'1px solid var(--border2)',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',transition:'all 0.15s'}}>
           {theme==='dark'?'☀️':'🌙'}
         </button>
       </div>

@@ -178,12 +178,27 @@ async function handleURLScan(ioc, type, env) {
 
 async function handleWHOIS(ioc, type) {
   const domain = type === 'email' ? ioc.split('@')[1] : ioc;
-  const endpoint = (type==='ip'||type==='ip6')
-    ? `https://rdap.org/ip/${encodeURIComponent(ioc)}`
-    : `https://rdap.org/domain/${encodeURIComponent(domain)}`;
-  const res = await fetch(endpoint, { headers: { Accept: 'application/json' } });
-  if (!res.ok) return { error: `RDAP ${res.status}` };
-  const data = await res.json();
+  const isIP = type === 'ip' || type === 'ip6';
+
+  // Try multiple RDAP endpoints in order
+  const endpoints = isIP ? [
+    `https://rdap.org/ip/${encodeURIComponent(ioc)}`,
+    `https://rdap.arin.net/registry/ip/${encodeURIComponent(ioc)}`,
+    `https://rdap.db.ripe.net/ip/${encodeURIComponent(ioc)}`,
+    `https://rdap.apnic.net/ip/${encodeURIComponent(ioc)}`,
+  ] : [
+    `https://rdap.org/domain/${encodeURIComponent(domain)}`,
+    `https://rdap.verisign.com/com/v1/domain/${encodeURIComponent(domain)}`,
+  ];
+
+  let data = null;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, { headers: { Accept: 'application/json' }, cf: { connectTimeoutMs: 4000 } });
+      if (res.ok) { data = await res.json(); break; }
+    } catch { continue; }
+  }
+  if (!data) return { error: 'RDAP lookup failed — all endpoints unreachable' };
   const getDate = (events, action) => events?.find(e=>e.eventAction===action)?.eventDate?.split('T')[0] || null;
   const registrar = data.entities?.find(e=>e.roles?.includes('registrar'));
   return {
