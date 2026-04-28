@@ -27,8 +27,21 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
 };
 
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: SECURITY_HEADERS });
+function json(data, status = 200, extra = {}) {
+  return new Response(JSON.stringify(data), { status, headers: { ...SECURITY_HEADERS, ...extra } });
+}
+
+// ─── KV cache ────────────────────────────────────────────────────────────────
+const CACHE_TTL = 3600;
+
+async function kvGet(kv, key) {
+  try { const v = await kv.get(key); return v ? JSON.parse(v) : null; }
+  catch { return null; }
+}
+
+async function kvPut(kv, key, data) {
+  try { await kv.put(key, JSON.stringify(data), { expirationTtl: CACHE_TTL }); }
+  catch {}
 }
 function err(msg, status = 400) {
   return json({ error: msg }, status);
@@ -260,7 +273,7 @@ async function handleMalwareBazaar(hash) {
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
-export async function onRequest({ request, env }) {
+export async function onRequest({ request, env, waitUntil }) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
@@ -278,18 +291,34 @@ export async function onRequest({ request, env }) {
   if (!VALID_TYPES.has(type)) return err(`Invalid type: must be one of ${[...VALID_TYPES].join(', ')}`);
   if (!/^[a-zA-Z0-9._:/@%+=?&\-[\]]+$/.test(ioc)) return err('Invalid indicator');
 
+  const kv = env.ATLASOC_CACHE;
+
   try {
+    if (route === 'health') return json({ status: 'ok' });
+
+    const cacheKey = `${route}:${type}:${ioc.toLowerCase()}`;
+
+    if (kv) {
+      const hit = await kvGet(kv, cacheKey);
+      if (hit) return json(hit, 200, { 'X-Cache': 'HIT' });
+    }
+
+    let result;
     switch (route) {
-      case 'vt':      return json(await handleVirusTotal(ioc, type, env));
-      case 'abuse':   return json(await handleAbuseIPDB(ioc, env));
-      case 'shodan':  return json(await handleShodan(ioc, env));
-      case 'otx':     return json(await handleOTX(ioc, type, env));
-      case 'urlscan': return json(await handleURLScan(ioc, type, env));
-      case 'whois':   return json(await handleWHOIS(ioc, type));
-      case 'bazaar':  return json(await handleMalwareBazaar(ioc));
-      case 'health':  return json({ status: 'ok' });
+      case 'vt':      result = await handleVirusTotal(ioc, type, env); break;
+      case 'abuse':   result = await handleAbuseIPDB(ioc, env); break;
+      case 'shodan':  result = await handleShodan(ioc, env); break;
+      case 'otx':     result = await handleOTX(ioc, type, env); break;
+      case 'urlscan': result = await handleURLScan(ioc, type, env); break;
+      case 'whois':   result = await handleWHOIS(ioc, type); break;
+      case 'bazaar':  result = await handleMalwareBazaar(ioc); break;
       default:        return err('Not found', 404);
     }
+
+    // Don't cache error responses — upstream may be transiently down
+    if (kv && !result?.error) waitUntil(kvPut(kv, cacheKey, result));
+
+    return json(result, 200, { 'X-Cache': kv ? 'MISS' : 'BYPASS' });
   } catch (e) {
     console.error(e);
     return err('Internal error', 500);
