@@ -1,22 +1,26 @@
-const rateLimitMap = new Map();
-let rlCleanupCounter = 0;
-function isRateLimited(ip, maxPerMinute = 30) {
+// KV-backed rate limiter — global across all Worker isolates.
+// Reuses ATLASOC_CACHE binding (keys prefixed "rl:" to avoid collision with response cache).
+// Approximate: concurrent requests in the same window can race, but close enough for abuse prevention.
+// Falls back to allow-all when KV is unavailable (local dev without KV configured).
+async function isRateLimited(kv, ip, maxPerMinute = 30) {
+  if (!kv) return false;
+  const key = `rl:${ip}`;
   const now = Date.now();
-  // Amortized cleanup every 1000 requests — keeps map bounded, O(1) per-request average
-  if (++rlCleanupCounter >= 1000) {
-    rlCleanupCounter = 0;
-    for (const [key, entry] of rateLimitMap) {
-      if (now - entry.start > 60_000) rateLimitMap.delete(key);
+  try {
+    const raw = await kv.get(key);
+    if (raw) {
+      const entry = JSON.parse(raw);
+      if (now - entry.start < 60_000) {
+        if (entry.count >= maxPerMinute) return true;
+        await kv.put(key, JSON.stringify({ count: entry.count + 1, start: entry.start }), { expirationTtl: 60 });
+        return false;
+      }
     }
-  }
-  const entry = rateLimitMap.get(ip) || { count: 0, start: now };
-  if (now - entry.start > 60_000) {
-    rateLimitMap.set(ip, { count: 1, start: now });
+    await kv.put(key, JSON.stringify({ count: 1, start: now }), { expirationTtl: 60 });
+    return false;
+  } catch {
     return false;
   }
-  entry.count++;
-  rateLimitMap.set(ip, entry);
-  return entry.count > maxPerMinute;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -279,7 +283,7 @@ export async function onRequest({ request, env, waitUntil }) {
 
   // Rate limit
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (isRateLimited(ip, 30)) return err('Rate limit exceeded', 429);
+  if (await isRateLimited(env.ATLASOC_CACHE, ip, 30)) return err('Rate limit exceeded', 429);
 
   const url    = new URL(request.url);
   const route  = url.pathname.replace(/^\/api\//, '');

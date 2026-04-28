@@ -677,7 +677,7 @@ function App() {
   const runSearch = () => runSearchFor(query);
 
   const runBulk = async () => {
-    const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean);
+    const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean).slice(0, 50);
     if (!lines.length) return;
     setLoading(true);
     setResults(null);
@@ -779,8 +779,8 @@ function App() {
       ) : (
         <div style={{background:'var(--surface)',border:`1.5px solid var(--border)`,borderRadius:10,overflow:'hidden'}}>
           <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <span style={{fontSize:12,color:'var(--text-muted)',fontWeight:500}}>BULK MODE — One indicator per line</span>
-            <Badge label={`${bulkText.split('\n').filter(l=>l.trim()).length} indicators`} color={accent} small/>
+            <span style={{fontSize:12,color:'var(--text-muted)',fontWeight:500}}>BULK MODE — One indicator per line (max 50)</span>
+            {(n => <Badge label={n > 50 ? `${n} → capped at 50` : `${n} indicators`} color={n > 50 ? 'var(--amber)' : accent} small/>)(bulkText.split('\n').filter(l=>l.trim()).length)}
           </div>
           <textarea
             value={bulkText}
