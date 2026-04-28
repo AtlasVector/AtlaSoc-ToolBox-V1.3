@@ -64,7 +64,7 @@ function timeout(ms) {
 const VALID_TYPES = new Set([
   'ip', 'ip6', 'domain', 'url',
   'hash-md5', 'hash-sha1', 'hash-sha256',
-  'email', 'filename',
+  'email', 'filename', 'cve',
 ]);
 
 // ─── Source handlers ──────────────────────────────────────────────────────────
@@ -297,6 +297,110 @@ async function handleMalwareBazaar(hash) {
   };
 }
 
+async function handleCVE(cveId, env) {
+  const id = cveId.toUpperCase();
+
+  // Primary: NVD (NIST) — authoritative, free, optional API key for higher rate limit
+  const nvdHeaders = env.NVD_API_KEY ? { 'apiKey': env.NVD_API_KEY } : {};
+  try {
+    const nvdRes = await fetch(
+      `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${encodeURIComponent(id)}`,
+      { headers: nvdHeaders, signal: timeout(10000) }
+    );
+    if (nvdRes.ok) {
+      const nvdData = await nvdRes.json();
+      const vuln = nvdData?.vulnerabilities?.[0]?.cve;
+      if (vuln) {
+        const desc = vuln.descriptions?.find(d => d.lang === 'en')?.value || null;
+        const cvssV31 = vuln.metrics?.cvssMetricV31?.[0];
+        const cvssV30 = vuln.metrics?.cvssMetricV30?.[0];
+        const cvssV2  = vuln.metrics?.cvssMetricV2?.[0];
+        const cvss = cvssV31 || cvssV30 || cvssV2;
+        const cvssData = cvss?.cvssData || {};
+        const weaknesses = vuln.weaknesses?.flatMap(w =>
+          w.description?.map(d => d.value).filter(v => v && v !== 'NVD-CWE-Other' && v !== 'NVD-CWE-noinfo')
+        ).filter(Boolean) || [];
+        const refs = (vuln.references || []).slice(0, 10).map(r => ({
+          url: r.url,
+          source: r.source || null,
+          tags: r.tags || [],
+        }));
+        const cpes = (vuln.configurations || [])
+          .flatMap(c => c.nodes || [])
+          .flatMap(n => n.cpeMatch || [])
+          .filter(c => c.vulnerable)
+          .slice(0, 15)
+          .map(c => c.criteria);
+
+        return {
+          source: 'NVD / NIST',
+          id: vuln.id,
+          description: desc,
+          published: vuln.published?.split('T')[0] || null,
+          lastModified: vuln.lastModified?.split('T')[0] || null,
+          vulnStatus: vuln.vulnStatus || null,
+          cvssScore: cvssData.baseScore ?? null,
+          cvssVersion: cvssData.version || (cvssV31 ? '3.1' : cvssV30 ? '3.0' : cvssV2 ? '2.0' : null),
+          severity: cvssData.baseSeverity || null,
+          vectorString: cvssData.vectorString || null,
+          attackVector: cvssData.attackVector || cvssData.accessVector || null,
+          attackComplexity: cvssData.attackComplexity || cvssData.accessComplexity || null,
+          privilegesRequired: cvssData.privilegesRequired || null,
+          userInteraction: cvssData.userInteraction || null,
+          scope: cvssData.scope || null,
+          confidentialityImpact: cvssData.confidentialityImpact || null,
+          integrityImpact: cvssData.integrityImpact || null,
+          availabilityImpact: cvssData.availabilityImpact || null,
+          exploitabilityScore: cvss?.exploitabilityScore ?? null,
+          impactScore: cvss?.impactScore ?? null,
+          weaknesses,
+          references: refs,
+          affectedProducts: cpes,
+          cisaExploited: vuln.cisaExploitAdd ? true : false,
+          cisaActionDue: vuln.cisaActionDue || null,
+        };
+      }
+    }
+  } catch { /* fall through to CIRCL */ }
+
+  // Fallback: CIRCL CVE Search (free, no key, good coverage)
+  try {
+    const circlRes = await fetch(
+      `https://cve.circl.lu/api/cve/${encodeURIComponent(id)}`,
+      { signal: timeout(8000) }
+    );
+    if (circlRes.ok) {
+      const d = await circlRes.json();
+      if (d && d.id) {
+        const cvss3 = d.cvss3 || null;
+        const cvss2 = d.cvss || null;
+        return {
+          source: 'NVD / NIST',
+          id: d.id,
+          description: d.summary || null,
+          published: d.Published?.split('T')[0] || null,
+          lastModified: d.Modified?.split('T')[0] || null,
+          vulnStatus: null,
+          cvssScore: cvss3 ?? cvss2 ?? null,
+          cvssVersion: cvss3 ? '3.x' : cvss2 ? '2.0' : null,
+          severity: cvss3 >= 9 ? 'CRITICAL' : cvss3 >= 7 ? 'HIGH' : cvss3 >= 4 ? 'MEDIUM' : cvss3 ? 'LOW' : null,
+          vectorString: d.cvss3_vector || d.cvss_time || null,
+          attackVector: null, attackComplexity: null, privilegesRequired: null,
+          userInteraction: null, scope: null,
+          confidentialityImpact: null, integrityImpact: null, availabilityImpact: null,
+          exploitabilityScore: null, impactScore: null,
+          weaknesses: d.cwe ? [d.cwe] : [],
+          references: (d.references || []).slice(0, 10).map(url => ({ url, source: null, tags: [] })),
+          affectedProducts: (d.vulnerable_product || []).slice(0, 15),
+          cisaExploited: false, cisaActionDue: null,
+        };
+      }
+    }
+  } catch { /* both failed */ }
+
+  return { error: `CVE ${id} not found in NVD or CIRCL` };
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export async function onRequest({ request, env, waitUntil }) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
@@ -338,6 +442,7 @@ export async function onRequest({ request, env, waitUntil }) {
       case 'urlscan': result = await handleURLScan(ioc, type, env); break;
       case 'whois':   result = await handleWHOIS(ioc, type); break;
       case 'bazaar':  result = await handleMalwareBazaar(ioc); break;
+      case 'cve':     result = await handleCVE(ioc, env); break;
       default:        return err('Not found', 404);
     }
 

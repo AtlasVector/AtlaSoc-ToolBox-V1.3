@@ -40,6 +40,18 @@ const ENDPOINT_MAP = {
   urlscan: ['domain','url'],
   whois:   ['ip','ip6','domain','email'],
   bazaar:  ['hash-md5','hash-sha1','hash-sha256','filename'],
+  cve:     ['cve'],
+};
+
+const SOURCE_META = {
+  vt:      { name: 'VirusTotal',      icon: '🔬', url: 'virustotal.com' },
+  abuse:   { name: 'AbuseIPDB',       icon: '🛡',  url: 'abuseipdb.com' },
+  shodan:  { name: 'Shodan',          icon: '📡', url: 'shodan.io' },
+  otx:     { name: 'AlienVault OTX',  icon: '👁',  url: 'otx.alienvault.com' },
+  urlscan: { name: 'URLScan.io',      icon: '🌐', url: 'urlscan.io' },
+  whois:   { name: 'WHOIS / RDAP',    icon: '📋', url: 'rdap.org' },
+  bazaar:  { name: 'MalwareBazaar',   icon: '☣',  url: 'bazaar.abuse.ch' },
+  cve:     { name: 'NVD / NIST',      icon: '📊', url: 'nvd.nist.gov' },
 };
 
 async function fetchSource(endpoint, ioc, type) {
@@ -263,15 +275,47 @@ function getMockResults(val, type) {
     const domain = val.split('@')[1] || val;
     results.push(getMockVT(domain,'domain',s), getMockWHOIS(domain,'domain',s), getMockOTX(val,s));
   } else if (t === 'cve') {
-    const cvss = (between(s,0,100)/10).toFixed(1);
+    const cvssScore = parseFloat((between(s,10,100)/10).toFixed(1));
+    const severity = cvssScore >= 9 ? 'CRITICAL' : cvssScore >= 7 ? 'HIGH' : cvssScore >= 4 ? 'MEDIUM' : 'LOW';
+    const product = pick(['Linux kernel','OpenSSL','Apache HTTP Server','nginx','Microsoft Windows','Google Chrome','OpenSSH','PHP','Node.js','curl'],s);
+    const ver = `${between(s,1,19)}.${between(s+1,0,9)}.${between(s+2,0,9)}`;
+    const vuln = pick(['buffer overflow','use-after-free','SQL injection','cross-site scripting (XSS)','path traversal','privilege escalation','integer overflow','heap corruption','type confusion','out-of-bounds write'],s);
+    const attackVectors = ['NETWORK','ADJACENT_NETWORK','LOCAL','PHYSICAL'];
+    const impactVals = ['NONE','LOW','HIGH'];
     results.push({
-      source: 'CVE Details', icon: '⚠️', status: parseFloat(cvss) > 7 ? 'malicious' : parseFloat(cvss) > 4 ? 'suspicious' : 'clean',
-      cvss, severity: parseFloat(cvss) > 9 ? 'CRITICAL' : parseFloat(cvss) > 7 ? 'HIGH' : parseFloat(cvss) > 4 ? 'MEDIUM' : 'LOW',
-      published: `2025-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
-      description: `A ${pick(['buffer overflow','use-after-free','SQL injection','XSS','path traversal','privilege escalation'],s)} vulnerability in ${pick(['Linux kernel','OpenSSL','Apache HTTP','nginx','Microsoft Windows','Chrome'],s+1)} allows ${pick(['remote attackers','local users','authenticated users'],s+2)} to ${pick(['execute arbitrary code','cause a denial of service','gain elevated privileges','read sensitive data'],s+3)}.`,
-      affectedProducts: [`${pick(['Linux','Windows','Apache','OpenSSL','nginx'],s)} ${between(s,1,19)}.${between(s+1,0,9)}.x`],
-      patch: pick(['Available','Partial','None'], s),
-      exploitAvailable: between(s,0,5) > 3,
+      _mock: true,
+      source: 'NVD / NIST',
+      status: cvssScore > 7 ? 'malicious' : cvssScore > 4 ? 'suspicious' : 'clean',
+      id: val.toUpperCase(),
+      cvssScore,
+      cvssVersion: '3.1',
+      severity,
+      vectorString: `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`,
+      attackVector: pick(attackVectors, s),
+      attackComplexity: pick(['LOW','HIGH'], s+1),
+      privilegesRequired: pick(['NONE','LOW','HIGH'], s+2),
+      userInteraction: pick(['NONE','REQUIRED'], s+3),
+      scope: pick(['UNCHANGED','CHANGED'], s+4),
+      confidentialityImpact: pick(impactVals, s+5),
+      integrityImpact: pick(impactVals, s+6),
+      availabilityImpact: pick(impactVals, s+7),
+      exploitabilityScore: parseFloat((between(s,10,39)/10).toFixed(1)),
+      impactScore: parseFloat((between(s,10,60)/10).toFixed(1)),
+      published: `202${between(s,2,5)}-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
+      lastModified: `2025-${String(between(s+1,1,12)).padStart(2,'0')}-${String(between(s+2,1,28)).padStart(2,'0')}`,
+      vulnStatus: pick(['Analyzed','Modified','Awaiting Analysis'], s),
+      description: `A ${vuln} vulnerability in ${product} versions before ${ver} allows ${pick(['remote attackers','local users','authenticated users','unauthenticated remote attackers'],s+2)} to ${pick(['execute arbitrary code','cause a denial of service','gain elevated privileges','read sensitive information','bypass authentication controls'],s+3)} via ${pick(['a crafted HTTP request','specially crafted input','a malformed packet','manipulation of the session token','exploitation of the parsing logic'],s+4)}.`,
+      weaknesses: [pick(['CWE-119','CWE-79','CWE-89','CWE-416','CWE-125','CWE-787','CWE-190','CWE-22','CWE-352','CWE-502'],s)],
+      cisaExploited: between(s,0,10) > 8,
+      cisaActionDue: between(s,0,10) > 8 ? '2025-03-15' : null,
+      affectedProducts: [
+        `cpe:2.3:a:${product.toLowerCase().replace(/\s/g,'_')}:${product.toLowerCase().replace(/\s/g,'_')}:*:*:*:*:*:*:*:*`,
+        `cpe:2.3:o:vendor:${product.toLowerCase().replace(/\s/g,'_')}:${ver}:*:*:*:*:*:*:*`,
+      ],
+      references: [
+        { url: `https://nvd.nist.gov/vuln/detail/${val.toUpperCase()}`, source: 'nvd.nist.gov', tags: ['Vendor Advisory'] },
+        { url: `https://github.com/advisories/${val.toUpperCase()}`, source: 'github.com', tags: ['Third Party Advisory'] },
+      ],
     });
   } else if (t === 'filename') {
     results.push(getMockVT(val,'filename',s), getMockMalwareBazaar(val,s));
@@ -586,19 +630,99 @@ function renderMalwareBazaar(d) {
 }
 
 function renderCVE(d) {
+  if (d.error) return renderError(d);
+  const score = parseFloat(d.cvssScore ?? d.cvss ?? 0);
+  const scoreColor = score >= 9 ? 'var(--danger)' : score >= 7 ? 'var(--warning)' : score >= 4 ? 'var(--amber)' : 'var(--safe)';
+  const severity = d.severity || (score >= 9 ? 'CRITICAL' : score >= 7 ? 'HIGH' : score >= 4 ? 'MEDIUM' : score > 0 ? 'LOW' : null);
+  const refs = d.references || [];
+  const weaknesses = d.weaknesses || [];
+  const affectedProducts = d.affectedProducts || [];
+  const hasVector = d.attackVector || d.attackComplexity;
+
   return (
-    <div>
-      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:16}}>
-        <ScoreRing score={parseFloat(d.cvss)} max={10} label="CVSS Score" color={parseFloat(d.cvss)>9?'var(--danger)':parseFloat(d.cvss)>7?'var(--warning)':parseFloat(d.cvss)>4?'var(--amber)':'var(--safe)'}/>
-        <div style={{flex:1}}>
-          <div style={{marginBottom:8}}><Badge label={d.severity} color={parseFloat(d.cvss)>9?'var(--danger)':parseFloat(d.cvss)>7?'var(--warning)':parseFloat(d.cvss)>4?'var(--amber)':'var(--safe)'}/></div>
-          <InfoRow label="Published" value={d.published} mono/>
-          <InfoRow label="Patch" value={d.patch} color={d.patch==='Available'?'var(--safe)':d.patch==='Partial'?'var(--amber)':'var(--danger)'}/>
-          <InfoRow label="Exploit Available" value={d.exploitAvailable?'Yes':'No'} color={d.exploitAvailable?'var(--danger)':'var(--safe)'}/>
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      {/* Header: score + key facts */}
+      <div style={{display:'flex',alignItems:'flex-start',gap:20,flexWrap:'wrap'}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,flexShrink:0}}>
+          <ScoreRing score={score} max={10} label="CVSS Score" color={scoreColor}/>
+          {severity && <Badge label={severity} color={scoreColor}/>}
+          {d.cvssVersion && <span style={{fontSize:10,color:'var(--text-muted)',fontFamily:'var(--mono)'}}>v{d.cvssVersion}</span>}
         </div>
+        <div style={{flex:1,minWidth:200}}>
+          {d.id && <InfoRow label="CVE ID" value={<a href={`https://nvd.nist.gov/vuln/detail/${d.id}`} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontFamily:'var(--mono)',fontSize:12}}>{d.id} ↗</a>}/>}
+          {d.vulnStatus && <InfoRow label="Status" value={d.vulnStatus} color={d.vulnStatus==='Analyzed'?'var(--safe)':'var(--text-dim)'}/>}
+          {d.published && <InfoRow label="Published" value={d.published} mono/>}
+          {d.lastModified && <InfoRow label="Last Modified" value={d.lastModified} mono/>}
+          {d.exploitabilityScore != null && <InfoRow label="Exploitability" value={d.exploitabilityScore} mono/>}
+          {d.impactScore != null && <InfoRow label="Impact Score" value={d.impactScore} mono/>}
+        </div>
+        {(d.cisaExploited || weaknesses.length > 0) && (
+          <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+            {d.cisaExploited && <Tag text="CISA KEV — actively exploited" danger/>}
+            {weaknesses.map(w => <Tag key={w} text={w} warn/>)}
+          </div>
+        )}
       </div>
-      <div style={{padding:12,background:'var(--surface3)',borderRadius:6,fontSize:13,color:'var(--text-dim)',lineHeight:1.6,marginBottom:12}}>{d.description}</div>
-      <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Affected Products</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{d.affectedProducts.map(p=><Tag key={p} text={p}/>)}</div></div>
+
+      {/* CVSS Vector breakdown */}
+      {hasVector && (
+        <div style={{background:'var(--surface3)',borderRadius:8,padding:12}}>
+          <div style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:8}}>CVSS Vector</div>
+          {d.vectorString && <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--accent)',marginBottom:10,wordBreak:'break-all'}}>{d.vectorString}</div>}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:6}}>
+            {[
+              ['Attack Vector', d.attackVector],
+              ['Attack Complexity', d.attackComplexity],
+              ['Privileges Required', d.privilegesRequired],
+              ['User Interaction', d.userInteraction],
+              ['Scope', d.scope],
+              ['Confidentiality', d.confidentialityImpact],
+              ['Integrity', d.integrityImpact],
+              ['Availability', d.availabilityImpact],
+            ].filter(([,v]) => v).map(([k,v]) => (
+              <div key={k} style={{display:'flex',flexDirection:'column',gap:2,padding:'6px 8px',background:'var(--surface2)',borderRadius:5}}>
+                <span style={{fontSize:9,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{k}</span>
+                <span style={{fontSize:12,fontWeight:600,color:v==='HIGH'||v==='NETWORK'||v==='CHANGED'?scoreColor:'var(--text)'}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Description */}
+      {d.description && (
+        <div style={{padding:12,background:'var(--surface3)',borderRadius:8,fontSize:13,color:'var(--text-dim)',lineHeight:1.7}}>
+          {d.description}
+        </div>
+      )}
+
+      {/* Affected products */}
+      {affectedProducts.length > 0 && (
+        <div>
+          <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Affected Products ({affectedProducts.length})</span>
+          <div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap',maxHeight:120,overflowY:'auto'}}>
+            {affectedProducts.map((p,i) => <Tag key={i} text={p} warn/>)}
+          </div>
+        </div>
+      )}
+
+      {/* References */}
+      {refs.length > 0 && (
+        <div>
+          <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>References</span>
+          <div style={{marginTop:6,display:'flex',flexDirection:'column',gap:4}}>
+            {refs.map((r,i) => (
+              <div key={i} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'5px 0',borderBottom:'1px solid var(--border)'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <a href={r.url} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:11,fontFamily:'var(--mono)',wordBreak:'break-all'}}>{r.url}</a>
+                  {r.source && <span style={{fontSize:10,color:'var(--text-muted)',marginLeft:6}}>{r.source}</span>}
+                </div>
+                {r.tags?.length > 0 && <div style={{display:'flex',gap:3,flexShrink:0}}>{r.tags.slice(0,2).map(t=><Tag key={t} text={t}/>)}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -612,7 +736,7 @@ function renderSource(d) {
     if (d.source === 'URLScan.io') return renderURLScan(d);
     if (d.source === 'WHOIS / RDAP') return renderWHOIS(d);
     if (d.source === 'MalwareBazaar') return renderMalwareBazaar(d);
-    if (d.source === 'CVE Details') return renderCVE(d);
+    if (d.source === 'NVD / NIST' || d.source === 'CVE Details') return renderCVE(d);
     return null;
   } catch(e) {
     return <div style={{padding:16,color:'var(--text-muted)',fontSize:13,background:'var(--surface3)',borderRadius:8}}>
@@ -630,8 +754,9 @@ function overallStatus(sources) {
 }
 
 const ResultsPanel = ({sources, val, isCompact, accent}) => {
-  const [tab, setTab] = React.useState(0);
-  React.useEffect(() => { setTab(0); }, [val]);
+  const [tab, setTab] = React.useState(null);
+  React.useEffect(() => { setTab(sources[0]?.source || null); }, [val]);
+  const activeSource = sources.find(s => s.source === tab) || sources[0];
   const overall = overallStatus(sources);
   return (
     <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
@@ -644,14 +769,24 @@ const ResultsPanel = ({sources, val, isCompact, accent}) => {
         <Badge label={STATUS_LABEL[overall]||'Unknown'} color={STATUS_COLOR[overall]||'var(--text-muted)'}/>
       </div>
       <div style={{display:'flex',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--surface2)',overflowX:'auto'}}>
-        {sources.map((s,i)=>(
-          <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-dim)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,borderTop:`2px solid ${tab===i?accent+'50':'transparent'}`,background:tab===i?`${accent}10`:'transparent',whiteSpace:'nowrap',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5}}>
-            <Dot status={s.status}/>{s.source}{s._mock&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'var(--amber)18',color:'var(--amber)',border:'1px solid var(--amber)30',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>}
-          </button>
-        ))}
+        {sources.map(s=>{
+          const isActive = (tab === s.source) || (!tab && s === sources[0]);
+          return (
+            <button key={s.source} onClick={()=>setTab(s.source)} style={{padding:'9px 14px',fontSize:12,fontWeight:600,color:isActive?accent:'var(--text-dim)',borderBottom:`2px solid ${isActive?accent:'transparent'}`,borderTop:`2px solid ${isActive?accent+'50':'transparent'}`,background:isActive?`${accent}10`:'transparent',whiteSpace:'nowrap',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+              <Dot status={s.status}/>
+              {s.source}
+              {s._mock
+                ? <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(245,158,11,0.12)',color:'var(--amber)',border:'1px solid rgba(245,158,11,0.3)',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>
+                : s.error
+                  ? <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(239,68,68,0.12)',color:'var(--danger)',border:'1px solid rgba(239,68,68,0.3)',fontWeight:700,letterSpacing:'0.05em'}}>ERR</span>
+                  : <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(16,185,129,0.12)',color:'var(--safe)',border:'1px solid rgba(16,185,129,0.3)',fontWeight:700,letterSpacing:'0.05em'}}>LIVE</span>
+              }
+            </button>
+          );
+        })}
       </div>
       <div style={{flex:1,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'0 0 10px 10px',padding:isCompact?12:16,overflowY:'auto'}}>
-        {sources[tab] && renderSource(sources[tab])}
+        {activeSource && renderSource(activeSource)}
       </div>
     </div>
   );
@@ -703,7 +838,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
   "layout": "centered",
   "accentColor": "#06b6d4",
-  "density": "comfortable"
+  "density": "comfortable",
+  "demoMode": true
 }/*EDITMODE-END*/;
 
 function App() {
@@ -721,6 +857,7 @@ function App() {
   const theme = tweaks.theme;
   const layout = tweaks.layout;
   const accent = tweaks.accentColor;
+  const demoMode = tweaks.demoMode;
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -738,8 +875,12 @@ function App() {
     setLoading(true);
     setResults(null);
     setBulkResults(null);
-    const live = await getLiveResults(trimmed, t);
-    setResults(live || getMockResults(trimmed, t));
+    if (demoMode) {
+      setResults(getMockResults(trimmed, t));
+    } else {
+      const live = await getLiveResults(trimmed, t);
+      setResults(live || getMockResults(trimmed, t));
+    }
     setLoading(false);
   };
 
@@ -753,8 +894,8 @@ function App() {
     setBulkResults(null);
     const res = await Promise.all(lines.map(async val => {
       const t = detectType(val);
-      const live = await getLiveResults(val, t);
-      return { val, type: t, sources: live || getMockResults(val, t) };
+      const sources = demoMode ? getMockResults(val, t) : (await getLiveResults(val, t) || getMockResults(val, t));
+      return { val, type: t, sources };
     }));
     setBulkResults(res);
     setSelectedBulk(0);
@@ -804,6 +945,10 @@ function App() {
       <div style={{display:'flex',alignItems:'center',gap:8}}>
         {hasResult && <Btn onClick={resetHome}>⌂ Home</Btn>}
         <Btn onClick={()=>setBulkMode(b=>!b)} active={bulkMode}>{bulkMode?'⊞ Bulk':'⊟ Single'}</Btn>
+        <button onClick={()=>setTweak('demoMode',!demoMode)} style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${demoMode?'rgba(245,158,11,0.5)':'var(--border2)'}`,background:demoMode?'rgba(245,158,11,0.1)':'var(--surface2)',color:demoMode?'var(--amber)':'var(--text-muted)',fontSize:11,fontWeight:700,letterSpacing:'0.06em',cursor:'pointer',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5}}>
+          <span style={{width:6,height:6,borderRadius:'50%',background:demoMode?'var(--amber)':'var(--text-muted)',display:'inline-block',flexShrink:0}}/>
+          {demoMode ? 'DEMO' : 'LIVE'}
+        </button>
         {hasResult && <>
           <Btn onClick={exportJSON}>↓ JSON</Btn>
           <Btn onClick={exportPDF}>⎙ PDF</Btn>
@@ -819,8 +964,8 @@ function App() {
   const searchBar = (
     <div style={{display:'flex',flexDirection:'column',gap:8,width:'100%',maxWidth:isSplit?'100%':680}}>
       {!bulkMode ? (
-        <div style={{position:'relative'}}>
-          <div style={{display:'flex',alignItems:'center',background:'var(--surface)',border:`1.5px solid ${query&&iocType?accent+'70':'rgba(255,255,255,0.09)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType?`0 0 0 3px ${accent}18, 0 4px 20px rgba(0,0,0,0.3)`:`0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)`}}>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          <div style={{display:'flex',alignItems:'center',background:'var(--surface)',border:`1.5px solid ${query&&iocType&&iocType!=='unknown'?accent+'70':'rgba(255,255,255,0.09)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType&&iocType!=='unknown'?`0 0 0 3px ${accent}18, 0 4px 20px rgba(0,0,0,0.3)`:`0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)`}}>
             <div style={{padding:'0 10px 0 16px',fontFamily:'var(--mono)',fontSize:13,color:'var(--accent)',opacity:0.85,userSelect:'none',letterSpacing:'0.02em',display:'flex',alignItems:'center',gap:1}}>{'>'}<span style={{animation:'cur 1s step-end infinite'}}>_</span></div>
             <input
               value={query}
@@ -834,10 +979,23 @@ function App() {
                 <Badge label={IOC_LABELS[iocType]||iocType} color={accent} small/>
               </div>
             )}
-            <button onClick={runSearch} style={{margin:5,padding:'0 18px',height:38,borderRadius:8,background:accent,color:'#000',fontWeight:700,fontSize:12,letterSpacing:'0.03em',transition:'opacity 0.2s',opacity:query?1:0.4,flexShrink:0}}>
+            <button onClick={runSearch} style={{margin:5,padding:'0 18px',height:38,borderRadius:8,background:accent,color:'#000',fontWeight:700,fontSize:12,letterSpacing:'0.03em',transition:'opacity 0.2s',opacity:query&&iocType&&iocType!=='unknown'?1:0.4,flexShrink:0}}>
               ANALYZE
             </button>
           </div>
+          {query && iocType && iocType !== 'unknown' && !hasResult && !loading && (
+            <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',padding:'2px 4px'}}>
+              <span style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.06em',flexShrink:0}}>Will query:</span>
+              {Object.entries(ENDPOINT_MAP).filter(([,types])=>types.includes(iocType)).map(([ep])=>{
+                const m = SOURCE_META[ep];
+                return m ? (
+                  <span key={ep} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:4,background:'var(--surface2)',border:'1px solid var(--border2)',fontSize:11,color:'var(--text-dim)',fontWeight:500}}>
+                    {m.icon} {m.name}
+                  </span>
+                ) : null;
+              })}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{background:'var(--surface)',border:`1.5px solid var(--border)`,borderRadius:10,overflow:'hidden'}}>
