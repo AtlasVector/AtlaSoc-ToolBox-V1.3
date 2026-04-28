@@ -3,6 +3,30 @@ import { createRoot } from 'react-dom/client';
 import { useTweaks, TweaksPanel, TweakRadio, TweakColor } from './tweaks-panel.jsx';
 
 
+// ─── Typewriter placeholder ──────────────────────────────────────────────────
+function usePlaceholder(examples) {
+  const [text, setText] = React.useState('');
+  const s = React.useRef({ ex: 0, ch: 0, del: false, tid: null });
+  React.useEffect(() => {
+    const tick = () => {
+      const r = s.current, target = examples[r.ex];
+      if (!r.del) {
+        r.ch++;
+        setText(target.slice(0, r.ch));
+        if (r.ch === target.length) { r.del = true; r.tid = setTimeout(tick, 1800); return; }
+      } else {
+        r.ch--;
+        setText(target.slice(0, r.ch));
+        if (r.ch === 0) { r.del = false; r.ex = (r.ex + 1) % examples.length; }
+      }
+      r.tid = setTimeout(tick, r.del ? 35 : 72);
+    };
+    s.current.tid = setTimeout(tick, 900);
+    return () => clearTimeout(s.current.tid);
+  }, []);
+  return text;
+}
+
 // ─── API config ──────────────────────────────────────────────────────────────
 // Calls go to /api/* on the same domain — no secrets, no keys in the browser.
 // Keys live only in Cloudflare Pages environment variables (server-side).
@@ -600,6 +624,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 function App() {
+  const typedPlaceholder = usePlaceholder(EXAMPLES);
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [query, setQuery] = React.useState('');
   const [bulkMode, setBulkMode] = React.useState(false);
@@ -719,13 +744,13 @@ function App() {
       {!bulkMode ? (
         <div style={{position:'relative'}}>
           <div style={{display:'flex',alignItems:'center',background:hasResult?'var(--surface)':'var(--bg)',border:`1.5px solid ${query&&iocType?accent+'60':hasResult?'var(--border)':'var(--border2)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType?`0 0 0 3px ${accent}14`:`0 2px 12px rgba(0,0,0,0.06)`}}>
-            <div style={{padding:'0 14px',color:'var(--text-muted)',fontSize:16,opacity:0.6}}>🔍</div>
+            <div style={{padding:'0 10px 0 16px',fontFamily:'var(--mono)',fontSize:13,color:'var(--accent)',opacity:0.85,userSelect:'none',letterSpacing:'0.02em',display:'flex',alignItems:'center',gap:1}}>{'>'}<span style={{animation:'cur 1s step-end infinite'}}>_</span></div>
             <input
               value={query}
               onChange={e=>setQuery(e.target.value)}
               onKeyDown={e=>e.key==='Enter'&&runSearch()}
-              placeholder="Paste IP, domain, URL, hash, email, CVE…"
-              style={{flex:1,padding:'14px 0',fontSize:14,background:'transparent',color:'var(--text)'}}
+              placeholder={typedPlaceholder || 'paste IP · domain · URL · hash · email · CVE'}
+              style={{flex:1,padding:'14px 0',fontSize:14,fontFamily:query?'var(--mono)':'var(--body)',background:'transparent',color:'var(--text)'}}
             />
             {query && iocType && iocType !== 'unknown' && (
               <div style={{padding:'0 12px'}}>
@@ -825,18 +850,28 @@ function App() {
 
   // ── Empty state ──────────────────────────────────────────────────────────────
   const emptyState = (
-    <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:24,padding:32,textAlign:'center'}}>
-      <div style={{opacity:0.3,fontSize:64}}>🛡</div>
-      <div>
-        <div style={{fontWeight:600,fontSize:16,color:'var(--text-dim)',marginBottom:6}}>Analyze any threat indicator</div>
-        <div style={{color:'var(--text-muted)',fontSize:13,maxWidth:400,margin:'0 auto',lineHeight:1.6,textWrap:'pretty'}}>Paste an IP address, domain, URL, file hash, email address, or CVE to query multiple threat intelligence sources at once.</div>
-      </div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
-        {EXAMPLES.map(ex=>(
-          <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s'}}>
-            {ex}
-          </button>
-        ))}
+    <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:32}}>
+      <div style={{fontFamily:'var(--mono)',fontSize:12,maxWidth:460,width:'100%'}}>
+        <div style={{color:'var(--text-muted)',letterSpacing:'0.1em',marginBottom:14,paddingBottom:10,borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span>ATLASOC-KIT // THREAT INTELLIGENCE TERMINAL</span>
+          <span style={{color:'var(--safe)',fontSize:10}}>● ONLINE</span>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:5,marginBottom:20}}>
+          <div style={{color:'var(--safe)'}}><span style={{color:'var(--text-muted)'}}>{'>'}</span> 7 sources connected · VirusTotal · Shodan · OTX +4</div>
+          <div style={{color:'var(--text-muted)'}}><span>{'>'}</span> Session initialised. Awaiting target indicator...</div>
+          <div style={{color:'var(--accent)',display:'flex',alignItems:'center',gap:6}}>
+            <span>{'>'}</span>
+            <span style={{display:'inline-block',width:7,height:13,background:'var(--accent)',animation:'cur 1s step-end infinite',verticalAlign:'middle'}}/>
+          </div>
+        </div>
+        <div style={{color:'var(--text-muted)',marginBottom:8,opacity:0.6}}>{'// quick examples'}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {EXAMPLES.map(ex=>(
+            <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'4px 10px',borderRadius:4,background:'transparent',border:'1px solid var(--border2)',fontFamily:'var(--mono)',fontSize:11,color:'var(--accent)',transition:'all 0.15s'}}>
+              {ex}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -850,8 +885,12 @@ function App() {
           <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'0 20px',gap:28}}>
             <div style={{width:'100%',maxWidth:680}}>
               <div style={{textAlign:'center',marginBottom:20}}>
-                <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:22,letterSpacing:'-0.03em',color:'var(--text)',marginBottom:6}}><BrandName accent={accent}/></div>
-                <div style={{color:'var(--text-muted)',fontSize:13}}>Paste any threat indicator to analyze across multiple intelligence sources</div>
+                <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:22,letterSpacing:'-0.03em',color:'var(--text)',marginBottom:8}}><BrandName accent={accent}/></div>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',letterSpacing:'0.08em'}}>
+                  <span style={{color:'var(--accent)'}}>{'>'}</span>
+                  {' '}MULTI-SOURCE THREAT INTELLIGENCE{' '}
+                  <span style={{display:'inline-block',width:6,height:11,background:'var(--accent)',opacity:0.8,animation:'cur 1s step-end infinite',verticalAlign:'middle'}}/>
+                </div>
               </div>
               {searchBar}
             </div>
