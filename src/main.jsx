@@ -971,7 +971,7 @@ function App() {
               value={query}
               onChange={e=>setQuery(e.target.value)}
               onKeyDown={e=>e.key==='Enter'&&runSearch()}
-              placeholder={typedPlaceholder || 'paste IP · domain · URL · hash · email · CVE'}
+              placeholder={typedPlaceholder}
               style={{flex:1,padding:'14px 0',fontSize:14,fontFamily:query?'var(--mono)':'var(--body)',background:'transparent',color:'var(--text)'}}
             />
             {query && iocType && iocType !== 'unknown' && (
@@ -1006,7 +1006,7 @@ function App() {
           <textarea
             value={bulkText}
             onChange={e=>setBulkText(e.target.value)}
-            placeholder={"8.8.8.8\nexample.com\nhttps://suspicious.site/path\n44d88612fea8a8f36de82e1278abb02f"}
+            placeholder={""}
             rows={5}
             style={{display:'block',width:'100%',padding:'12px 14px',fontSize:13,fontFamily:'var(--mono)',color:'var(--text)',background:'transparent',resize:'vertical'}}
           />
