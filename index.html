@@ -231,7 +231,6 @@ function getMockWHOIS(val, type, s) {
   return {
     source: 'WHOIS / RDAP',
     icon: '📋',
-    status: 'info',
     registrar: isIP ? null : pick(registrars, s),
     created: `${year}-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
     updated: `2025-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
@@ -630,6 +629,8 @@ const BrandName = ({accent}) => (
 );
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
+const EXAMPLES = ['8.8.8.8','malicious.ru','https://phish.site/login','44d88612fea8a8f36de82e1278abb02f','CVE-2024-3094'];
+
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
   "layout": "centered",
@@ -643,7 +644,6 @@ function App() {
   const [bulkMode, setBulkMode] = React.useState(false);
   const [bulkText, setBulkText] = React.useState('');
   const [results, setResults] = React.useState(null);
-  const [activeTab, setActiveTab] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
   const [bulkResults, setBulkResults] = React.useState(null);
   const [selectedBulk, setSelectedBulk] = React.useState(0);
@@ -662,16 +662,19 @@ function App() {
 
   const iocType = detectType(query);
 
-  const runSearch = async () => {
-    if (!query.trim()) return;
+  const runSearchFor = async (val) => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    const t = detectType(trimmed);
     setLoading(true);
     setResults(null);
     setBulkResults(null);
-    const live = await getLiveResults(query.trim(), iocType);
-    setResults(live || getMockResults(query.trim(), iocType));
-    setActiveTab(0);
+    const live = await getLiveResults(trimmed, t);
+    setResults(live || getMockResults(trimmed, t));
     setLoading(false);
   };
+
+  const runSearch = () => runSearchFor(query);
 
   const runBulk = async () => {
     const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -724,6 +727,8 @@ function App() {
     </button>
   );
 
+  const hasResult = results || bulkResults;
+
   const header = (
     <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:`${isCompact?10:13}px 20px`,background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0,zIndex:10}}>
       <button onClick={resetHome} style={{display:'flex',alignItems:'center',gap:10,background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:8,transition:'background 0.15s'}}>
@@ -748,7 +753,6 @@ function App() {
   );
 
   // ── Search Input ─────────────────────────────────────────────────────────────
-  const hasResult = results || bulkResults;
   const searchBar = (
     <div style={{display:'flex',flexDirection:'column',gap:8,width:'100%',maxWidth:isSplit?'100%':680}}>
       {!bulkMode ? (
@@ -867,7 +871,7 @@ function App() {
         <div style={{color:'var(--text-muted)',fontSize:13,maxWidth:400,margin:'0 auto',lineHeight:1.6,textWrap:'pretty'}}>Paste an IP address, domain, URL, file hash, email address, or CVE to query multiple threat intelligence sources at once.</div>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
-        {['8.8.8.8','malicious.ru','https://phish.site/login','44d88612fea8a8f36de82e1278abb02f','CVE-2024-3094'].map(ex=>(
+        {EXAMPLES.map(ex=>(
           <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s'}}>
             {ex}
           </button>
@@ -891,7 +895,7 @@ function App() {
               {searchBar}
             </div>
             <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
-              {['8.8.8.8','malicious.ru','https://phish.site/login','44d88612fea8a8f36de82e1278abb02f','CVE-2024-3094'].map(ex=>(
+              {EXAMPLES.map(ex=>(
                 <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s',cursor:'pointer'}}>
                   {ex}
                 </button>
@@ -928,8 +932,8 @@ function App() {
             <div style={{marginTop:8}}>
               <div style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:8}}>Quick Examples</div>
               <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                {['8.8.8.8','malicious.ru','https://phish.site/login','44d88612fea8a8f36de82e1278abb02f','CVE-2024-3094'].map(ex=>(
-                  <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);setTimeout(()=>{document.querySelector('button[style*="ANALYZE"]')?.click();},50)}} style={{padding:'6px 10px',borderRadius:6,background:'var(--surface2)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',textAlign:'left',transition:'all 0.1s'}}>
+                {EXAMPLES.map(ex=>(
+                  <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);runSearchFor(ex);}} style={{padding:'6px 10px',borderRadius:6,background:'var(--surface2)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',textAlign:'left',transition:'all 0.1s'}}>
                     {ex}
                   </button>
                 ))}
