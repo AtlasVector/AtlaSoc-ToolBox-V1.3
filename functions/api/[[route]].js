@@ -96,12 +96,18 @@ async function handleVirusTotal(ioc, type, env) {
   const data = await res.json();
   const stats = data?.data?.attributes?.last_analysis_stats || {};
   const meta  = data?.data?.attributes || {};
+  const engineResults = meta.last_analysis_results || {};
+  const detectedEngines = Object.entries(engineResults)
+    .filter(([, v]) => v.category === 'malicious' || v.category === 'suspicious')
+    .slice(0, 10)
+    .map(([name, v]) => ({ name, result: v.result, category: v.category }));
   return {
     source: 'VirusTotal',
     detected: stats.malicious || 0,
     total: Object.values(stats).reduce((a,b)=>a+b,0) || 0,
     suspicious: stats.suspicious || 0,
     harmless: stats.harmless || 0,
+    undetected: stats.undetected || 0,
     lastAnalysis: meta.last_analysis_date ? new Date(meta.last_analysis_date*1000).toISOString().split('T')[0] : null,
     reputation: meta.reputation ?? null,
     categories: meta.categories ? Object.values(meta.categories) : [],
@@ -110,6 +116,15 @@ async function handleVirusTotal(ioc, type, env) {
     fileSize: meta.size ? `${Math.round(meta.size/1024)} KB` : null,
     firstSeen: meta.first_submission_date ? new Date(meta.first_submission_date*1000).toISOString().split('T')[0] : null,
     permalink: `https://www.virustotal.com/gui/${typeMap[type]||'files'}/${ioc}`,
+    // IP/domain enrichment
+    country: meta.country || null,
+    asn: meta.asn || null,
+    network: meta.network || null,
+    asOwner: meta.as_owner || null,
+    continent: meta.continent || null,
+    registrar: meta.registrar || null,
+    creationDate: meta.creation_date ? new Date(meta.creation_date*1000).toISOString().split('T')[0] : null,
+    engines: detectedEngines,
   };
 }
 
@@ -125,6 +140,7 @@ async function handleAbuseIPDB(ip, env) {
     source: 'AbuseIPDB',
     abuseScore: data.abuseConfidenceScore,
     country: data.countryCode,
+    countryName: data.countryName || null,
     isp: data.isp,
     domain: data.domain,
     usageType: data.usageType,
@@ -134,6 +150,11 @@ async function handleAbuseIPDB(ip, env) {
     isWhitelisted: data.isWhitelisted,
     tor: data.isTor,
     ipVersion: data.ipVersion,
+    recentReports: (data.reports || []).slice(0, 5).map(r => ({
+      date: r.reportedAt ? r.reportedAt.split('T')[0] : null,
+      categories: r.categories || [],
+      comment: r.comment ? r.comment.slice(0, 120) : null,
+    })),
   };
 }
 

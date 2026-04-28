@@ -343,33 +343,51 @@ const Tag = ({text, danger, warn}) => (
 );
 
 // ─── Source panel renderers ───────────────────────────────────────────────────
+function renderError(d) {
+  return (
+    <div style={{padding:'20px 0',textAlign:'center'}}>
+      <div style={{fontSize:28,marginBottom:8}}>⚠</div>
+      <div style={{color:'var(--amber)',fontWeight:600,marginBottom:4}}>{d.source} unavailable</div>
+      <div style={{fontSize:12,color:'var(--text-muted)'}}>{d.error}</div>
+    </div>
+  );
+}
+
 function renderVT(d) {
-  const score = d.reputation ?? d.communityScore ?? null;
+  if (d.error) return renderError(d);
+  const score = d.reputation ?? null;
   const harmless = d.harmless ?? 0;
   const suspicious = d.suspicious ?? 0;
   const undetected = d.undetected ?? 0;
+  const engines = d.engines || [];
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       <DetectionBar detected={d.detected} total={d.total}/>
-      {(harmless > 0 || suspicious > 0 || undetected > 0) && (
-        <div style={{display:'flex',gap:12}}>
-          {harmless > 0 && <span style={{fontSize:12,color:'var(--safe)'}}>✓ {harmless} harmless</span>}
-          {suspicious > 0 && <span style={{fontSize:12,color:'var(--amber)'}}>⚠ {suspicious} suspicious</span>}
-          {undetected > 0 && <span style={{fontSize:12,color:'var(--text-muted)'}}>— {undetected} undetected</span>}
-        </div>
-      )}
+      <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+        {harmless > 0 && <span style={{fontSize:12,color:'var(--safe)'}}>✓ {harmless} harmless</span>}
+        {suspicious > 0 && <span style={{fontSize:12,color:'var(--amber)'}}>⚠ {suspicious} suspicious</span>}
+        {undetected > 0 && <span style={{fontSize:12,color:'var(--text-muted)'}}>— {undetected} undetected</span>}
+      </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <div>
+          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.asOwner && <InfoRow label="AS Owner" value={d.asOwner}/>}
+          {d.asn && <InfoRow label="ASN" value={String(d.asn)} mono/>}
+          {d.network && <InfoRow label="Network" value={d.network} mono/>}
+          {d.continent && <InfoRow label="Continent" value={d.continent}/>}
+          {d.registrar && <InfoRow label="Registrar" value={d.registrar}/>}
+          {d.creationDate && <InfoRow label="Created" value={d.creationDate} mono/>}
           {d.fileType && <InfoRow label="File Type" value={d.fileType}/>}
           {d.fileSize && <InfoRow label="File Size" value={d.fileSize}/>}
           {d.firstSeen && <InfoRow label="First Seen" value={d.firstSeen} mono/>}
           {d.lastAnalysis && <InfoRow label="Last Analysis" value={d.lastAnalysis} mono/>}
-          {score != null && <InfoRow label="Reputation Score" value={score > 0 ? `+${score}` : String(score)} color={score>0?'var(--safe)':score<0?'var(--danger)':'var(--text-muted)'}/>}
+          {score != null && <InfoRow label="Reputation" value={score > 0 ? `+${score}` : String(score)} color={score>0?'var(--safe)':score<0?'var(--danger)':'var(--text-muted)'}/>}
           {d.permalink && <InfoRow label="Full Report" value={<a href={d.permalink} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>Open in VirusTotal ↗</a>}/>}
         </div>
         <div>
-          {d.categories?.length > 0 && <div style={{marginBottom:8}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.categories.map(c=><Tag key={c} text={c} danger/>)}</div></div>}
-          {d.tags?.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Tags</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.tags.map(t=><Tag key={t} text={t} danger={t!=='clean'}/>)}</div></div>}
+          {d.categories?.length > 0 && <div style={{marginBottom:10}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.categories.map(c=><Tag key={c} text={c} danger/>)}</div></div>}
+          {d.tags?.length > 0 && <div style={{marginBottom:10}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Tags</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.tags.map(t=><Tag key={t} text={t} danger={t!=='clean'}/>)}</div></div>}
+          {engines.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Detections ({engines.length})</span><div style={{marginTop:6,display:'flex',flexDirection:'column',gap:3}}>{engines.map((e,i)=><div key={i} style={{display:'flex',gap:6,fontSize:11,padding:'3px 0',borderBottom:'1px solid var(--border)'}}><span style={{color:e.category==='malicious'?'var(--danger)':'var(--amber)',flexShrink:0,width:14}}>{'●'}</span><span style={{color:'var(--text-dim)',flexShrink:0,minWidth:100}}>{e.name}</span><span style={{fontFamily:'var(--mono)',color:'var(--text-muted)',wordBreak:'break-all'}}>{e.result}</span></div>)}</div></div>}
         </div>
       </div>
     </div>
@@ -377,15 +395,24 @@ function renderVT(d) {
 }
 
 function renderAbuse(d) {
+  if (d.error) return renderError(d);
   const score = d.abuseScore ?? 0;
+  const scoreColor = score > 80 ? 'var(--danger)' : score > 25 ? 'var(--amber)' : 'var(--safe)';
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
-      <div style={{display:'flex',alignItems:'center',gap:20}}>
-        <ScoreRing score={score} label="Abuse Score"/>
+      <div style={{display:'flex',alignItems:'flex-start',gap:20}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,flexShrink:0}}>
+          <ScoreRing score={score} label="Abuse Score" color={scoreColor}/>
+          <span style={{fontFamily:'var(--mono)',fontSize:16,fontWeight:700,color:scoreColor}}>{score}%</span>
+          <span style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>confidence</span>
+        </div>
         <div style={{flex:1}}>
-          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.countryName && <InfoRow label="Country" value={`${d.countryName} (${d.country})`}/>}
+          {!d.countryName && d.country && <InfoRow label="Country" value={d.country}/>}
           {d.isp && <InfoRow label="ISP" value={d.isp}/>}
+          {d.domain && <InfoRow label="Domain" value={d.domain} mono/>}
           {d.usageType && <InfoRow label="Usage Type" value={d.usageType}/>}
+          {d.ipVersion && <InfoRow label="IP Version" value={`IPv${d.ipVersion}`} mono/>}
           {d.totalReports != null && <InfoRow label="Total Reports" value={d.totalReports} mono/>}
           {d.numDistinctUsers != null && <InfoRow label="Distinct Users" value={d.numDistinctUsers} mono/>}
           {d.lastReported && <InfoRow label="Last Reported" value={d.lastReported} mono/>}
@@ -394,13 +421,32 @@ function renderAbuse(d) {
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {d.isWhitelisted && <Tag text="whitelisted"/>}
         {d.tor && <Tag text="TOR exit node" warn/>}
+        {score === 0 && <Tag text="no abuse reports"/>}
         {score > 80 && <Tag text="high confidence" danger/>}
+        {score > 25 && score <= 80 && <Tag text="suspicious activity" warn/>}
       </div>
+      {d.recentReports?.length > 0 && (
+        <div>
+          <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Recent Reports</span>
+          <div style={{marginTop:6,display:'flex',flexDirection:'column',gap:6}}>
+            {d.recentReports.map((r,i) => (
+              <div key={i} style={{padding:'8px 10px',background:'var(--surface3)',borderRadius:6,borderLeft:`3px solid ${scoreColor}`}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:r.comment?4:0}}>
+                  <span style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)'}}>{r.date}</span>
+                  {r.categories?.length > 0 && <div style={{display:'flex',gap:3}}>{r.categories.slice(0,4).map(c=><Tag key={c} text={String(c)} warn/>)}</div>}
+                </div>
+                {r.comment && <div style={{fontSize:11,color:'var(--text-dim)',fontFamily:'var(--mono)',wordBreak:'break-all'}}>{r.comment}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function renderShodan(d) {
+  if (d.error) return renderError(d);
   if (!d.found) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>📡</div><div>No Shodan data found for this IP</div></div>;
   const ports = d.ports || [];
   const hostnames = d.hostnames || [];
@@ -436,6 +482,7 @@ function renderShodan(d) {
 }
 
 function renderOTX(d) {
+  if (d.error) return renderError(d);
   const pulses = d.pulses ?? 0;
   const threatScore = d.threatScore ?? 0;
   const malwareFamilies = d.malwareFamilies || [];
@@ -461,6 +508,7 @@ function renderOTX(d) {
 }
 
 function renderURLScan(d) {
+  if (d.error) return renderError(d);
   if (!d.found && !d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>🌐</div><div>No URLScan results found for this indicator</div></div>;
   if (d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>⏳</div><div style={{fontWeight:600,marginBottom:4}}>Scan submitted</div><div style={{fontSize:12,marginBottom:12}}>{d.message}</div>{d.reportUrl&&<a href={d.reportUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>View results when ready ↗</a>}</div>;
   const technologies = d.technologies || [];
@@ -583,6 +631,7 @@ function overallStatus(sources) {
 
 const ResultsPanel = ({sources, val, isCompact, accent}) => {
   const [tab, setTab] = React.useState(0);
+  React.useEffect(() => { setTab(0); }, [val]);
   const overall = overallStatus(sources);
   return (
     <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
@@ -596,7 +645,7 @@ const ResultsPanel = ({sources, val, isCompact, accent}) => {
       </div>
       <div style={{display:'flex',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--surface2)',overflowX:'auto'}}>
         {sources.map((s,i)=>(
-          <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-muted)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,whiteSpace:'nowrap',transition:'all 0.15s',background:'transparent',display:'flex',alignItems:'center',gap:5}}>
+          <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-dim)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,borderTop:`2px solid ${tab===i?accent+'50':'transparent'}`,background:tab===i?`${accent}10`:'transparent',whiteSpace:'nowrap',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5}}>
             <Dot status={s.status}/>{s.source}{s._mock&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'var(--amber)18',color:'var(--amber)',border:'1px solid var(--amber)30',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>}
           </button>
         ))}
