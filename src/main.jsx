@@ -743,7 +743,7 @@ function App() {
     <div style={{display:'flex',flexDirection:'column',gap:8,width:'100%',maxWidth:isSplit?'100%':680}}>
       {!bulkMode ? (
         <div style={{position:'relative'}}>
-          <div style={{display:'flex',alignItems:'center',background:hasResult?'var(--surface)':'var(--bg)',border:`1.5px solid ${query&&iocType?accent+'60':hasResult?'var(--border)':'var(--border2)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType?`0 0 0 3px ${accent}14`:`0 2px 12px rgba(0,0,0,0.06)`}}>
+          <div style={{display:'flex',alignItems:'center',background:'var(--surface)',border:`1.5px solid ${query&&iocType?accent+'70':'rgba(255,255,255,0.09)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType?`0 0 0 3px ${accent}18, 0 4px 20px rgba(0,0,0,0.3)`:`0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)`}}>
             <div style={{padding:'0 10px 0 16px',fontFamily:'var(--mono)',fontSize:13,color:'var(--accent)',opacity:0.85,userSelect:'none',letterSpacing:'0.02em',display:'flex',alignItems:'center',gap:1}}>{'>'}<span style={{animation:'cur 1s step-end infinite'}}>_</span></div>
             <input
               value={query}
@@ -885,18 +885,18 @@ function App() {
           <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'0 20px',gap:28}}>
             <div style={{width:'100%',maxWidth:680}}>
               <div style={{textAlign:'center',marginBottom:20}}>
-                <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:22,letterSpacing:'-0.03em',color:'var(--text)',marginBottom:8}}><BrandName accent={accent}/></div>
-                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',letterSpacing:'0.08em'}}>
+                <div style={{fontFamily:'var(--font)',fontWeight:800,fontSize:42,letterSpacing:'-0.04em',color:'var(--text)',marginBottom:10,lineHeight:1,textShadow:`0 0 40px ${accent}55`}}><BrandName accent={accent}/></div>
+                <div style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--text-dim)',letterSpacing:'0.12em'}}>
                   <span style={{color:'var(--accent)'}}>{'>'}</span>
                   {' '}MULTI-SOURCE THREAT INTELLIGENCE{' '}
-                  <span style={{display:'inline-block',width:6,height:11,background:'var(--accent)',opacity:0.8,animation:'cur 1s step-end infinite',verticalAlign:'middle'}}/>
+                  <span style={{display:'inline-block',width:7,height:12,background:'var(--accent)',opacity:0.9,animation:'cur 1s step-end infinite',verticalAlign:'middle'}}/>
                 </div>
               </div>
               {searchBar}
             </div>
             <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
               {EXAMPLES.map(ex=>(
-                <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s',cursor:'pointer'}}>
+                <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface2)',border:`1px solid ${accent}30`,fontFamily:'var(--mono)',fontSize:11,color:accent,transition:'all 0.15s',cursor:'pointer'}}>
                   {ex}
                 </button>
               ))}
