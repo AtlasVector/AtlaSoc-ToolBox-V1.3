@@ -134,15 +134,20 @@ const __TWEAKS_STYLE = `
 `;
 
 // ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+
+function postToParent(type, payload) {
+  window.parent.postMessage(payload ? { type, ...payload } : { type }, window.location.origin);
+}
+
 function useTweaks(defaults) {
   const [values, setValues] = React.useState(defaults);
   const setTweak = React.useCallback((keyOrEdits, val) => {
     const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
       ? keyOrEdits : { [keyOrEdits]: val };
     setValues((prev) => ({ ...prev, ...edits }));
-    // Use same-origin target; falls back gracefully when there is no parent frame.
-    const targetOrigin = window.location.origin || '*';
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, targetOrigin);
+    postToParent('__edit_mode_set_keys', { edits });
   }, []);
   return [values, setTweak];
 }
@@ -189,15 +194,13 @@ function TweaksPanel({ title = 'Tweaks', children }) {
       else if (t === '__deactivate_edit_mode') setOpen(false);
     };
     window.addEventListener('message', onMsg);
-    const targetOrigin = window.location.origin || '*';
-    window.parent.postMessage({ type: '__edit_mode_available' }, targetOrigin);
+    postToParent('__edit_mode_available');
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
   const dismiss = () => {
     setOpen(false);
-    const targetOrigin = window.location.origin || '*';
-    window.parent.postMessage({ type: '__edit_mode_dismissed' }, targetOrigin);
+    postToParent('__edit_mode_dismissed');
   };
 
   const onDragStart = (e) => {

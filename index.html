@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<!-- CSP: unsafe-eval required by Babel standalone; unsafe-inline required by React inline styles -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://unpkg.com 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none';"/>
 <title>AtlaSoc Kit — Threat Intelligence Toolkit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"/>
@@ -654,8 +656,12 @@ function App() {
       ? bulkResults.map(r=>({indicator:r.val,type:IOC_LABELS[r.type]||r.type,results:r.sources}))
       : [{indicator:query,type:IOC_LABELS[iocType]||iocType,results}];
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `atlasoc-${Date.now()}.json`; a.click();
+    const a = document.createElement('a');
+    const blobUrl = URL.createObjectURL(blob);
+    a.href = blobUrl;
+    a.download = `atlasoc-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
   };
 
   const exportPDF = () => window.print();

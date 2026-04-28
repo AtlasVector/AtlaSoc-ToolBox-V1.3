@@ -1,6 +1,14 @@
 const rateLimitMap = new Map();
+let rlCleanupCounter = 0;
 function isRateLimited(ip, maxPerMinute = 30) {
   const now = Date.now();
+  // Amortized cleanup every 1000 requests — keeps map bounded, O(1) per-request average
+  if (++rlCleanupCounter >= 1000) {
+    rlCleanupCounter = 0;
+    for (const [key, entry] of rateLimitMap) {
+      if (now - entry.start > 60_000) rateLimitMap.delete(key);
+    }
+  }
   const entry = rateLimitMap.get(ip) || { count: 0, start: now };
   if (now - entry.start > 60_000) {
     rateLimitMap.set(ip, { count: 1, start: now });
@@ -266,14 +274,9 @@ export async function onRequest({ request, env }) {
   const type   = url.searchParams.get('type');
 
   if (!ioc || !type) return err('Missing params: ioc, type');
-
-  // Enforce maximum indicator length before further processing.
   if (ioc.length > 2048) return err('Indicator too long');
-
-  // Reject any type value not in our known set.
-  if (!VALID_TYPES.has(type)) return err('Invalid type');
-
-  if (!/^[a-zA-Z0-9._:/@%+=?&\-[\]{}]+$/.test(ioc)) return err('Invalid indicator');
+  if (!VALID_TYPES.has(type)) return err(`Invalid type: must be one of ${[...VALID_TYPES].join(', ')}`);
+  if (!/^[a-zA-Z0-9._:/@%+=?&\-[\]]+$/.test(ioc)) return err('Invalid indicator');
 
   try {
     switch (route) {
