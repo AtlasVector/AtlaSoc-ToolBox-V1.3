@@ -574,6 +574,40 @@ function renderSource(d) {
   }
 }
 
+function overallStatus(sources) {
+  if (!sources) return null;
+  if (sources.some(s=>s.status==='malicious')) return 'malicious';
+  if (sources.some(s=>s.status==='suspicious')) return 'suspicious';
+  return 'clean';
+}
+
+const ResultsPanel = ({sources, val, isCompact, accent}) => {
+  const [tab, setTab] = React.useState(0);
+  const overall = overallStatus(sources);
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'var(--surface)',borderRadius:'10px 10px 0 0',border:'1px solid var(--border)',borderBottom:'none'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <Dot status={overall}/>
+          <span style={{fontFamily:'var(--mono)',fontSize:13,color:'var(--text-dim)'}}>{val}</span>
+          <Badge label={IOC_LABELS[detectType(val)]||'Unknown'} color={accent} small/>
+        </div>
+        <Badge label={STATUS_LABEL[overall]||'Unknown'} color={STATUS_COLOR[overall]||'var(--text-muted)'}/>
+      </div>
+      <div style={{display:'flex',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--surface2)',overflowX:'auto'}}>
+        {sources.map((s,i)=>(
+          <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-muted)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,whiteSpace:'nowrap',transition:'all 0.15s',background:'transparent',display:'flex',alignItems:'center',gap:5}}>
+            <Dot status={s.status}/>{s.source}{s._mock&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'var(--amber)18',color:'var(--amber)',border:'1px solid var(--amber)30',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>}
+          </button>
+        ))}
+      </div>
+      <div style={{flex:1,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'0 0 10px 10px',padding:isCompact?12:16,overflowY:'auto'}}>
+        {sources[tab] && renderSource(sources[tab])}
+      </div>
+    </div>
+  );
+};
+
 // ─── Logo Mark ───────────────────────────────────────────────────────────────
 const LogoMark = ({size = 22}) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 96" width={size} height={Math.round(size * 1.2)} style={{flexShrink:0,color:'var(--accent)'}}>
@@ -694,12 +728,6 @@ function App() {
 
   const exportPDF = () => window.print();
 
-  const overallStatus = (sources) => {
-    if (!sources) return null;
-    if (sources.some(s=>s.status==='malicious')) return 'malicious';
-    if (sources.some(s=>s.status==='suspicious')) return 'suspicious';
-    return 'clean';
-  };
 
   const isCompact = tweaks.density === 'compact';
   const isSplit = layout === 'split';
@@ -792,33 +820,6 @@ function App() {
     </div>
   );
 
-  // ── Results Panel ────────────────────────────────────────────────────────────
-  const ResultsPanel = ({sources, val}) => {
-    const [tab, setTab] = React.useState(0);
-    const overall = overallStatus(sources);
-    return (
-      <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'var(--surface)',borderRadius:'10px 10px 0 0',border:'1px solid var(--border)',borderBottom:'none'}}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <Dot status={overall}/>
-            <span style={{fontFamily:'var(--mono)',fontSize:13,color:'var(--text-dim)'}}>{val}</span>
-            <Badge label={IOC_LABELS[detectType(val)]||'Unknown'} color={accent} small/>
-          </div>
-          <Badge label={STATUS_LABEL[overall]||'Unknown'} color={STATUS_COLOR[overall]||'var(--text-muted)'}/>
-        </div>
-        <div style={{display:'flex',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--surface2)',overflowX:'auto'}}>
-          {sources.map((s,i)=>(
-            <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-muted)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,whiteSpace:'nowrap',transition:'all 0.15s',background:'transparent',display:'flex',alignItems:'center',gap:5}}>
-              <Dot status={s.status}/>{s.source}{s._mock&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'var(--amber)18',color:'var(--amber)',border:'1px solid var(--amber)30',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>}
-            </button>
-          ))}
-        </div>
-        <div style={{flex:1,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'0 0 10px 10px',padding:isCompact?12:16,overflowY:'auto'}}>
-          {sources[tab] && renderSource(sources[tab])}
-        </div>
-      </div>
-    );
-  };
 
   // ── Bulk Results ─────────────────────────────────────────────────────────────
   const bulkView = bulkResults && (
@@ -841,7 +842,7 @@ function App() {
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,background:'var(--surface2)'}}>
         {bulkResults[selectedBulk] && (
           <div style={{flex:1,display:'flex',flexDirection:'column',padding:12,gap:0,minHeight:0}}>
-            <ResultsPanel sources={bulkResults[selectedBulk].sources} val={bulkResults[selectedBulk].val}/>
+            <ResultsPanel sources={bulkResults[selectedBulk].sources} val={bulkResults[selectedBulk].val} isCompact={isCompact} accent={accent}/>
           </div>
         )}
       </div>
@@ -906,7 +907,7 @@ function App() {
           <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
             <div style={{display:'flex',justifyContent:'center'}}>{searchBar}</div>
             {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
             {!loading && bulkResults && bulkView}
           </div>
         )}
@@ -942,7 +943,7 @@ function App() {
           </div>
           <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
             {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
             {!loading && bulkResults && bulkView}
             {!loading && !results && !bulkResults && emptyState}
           </div>
@@ -975,7 +976,7 @@ function App() {
           </div>
           <div style={{flex:1,overflow:'auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>
             {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
             {!loading && bulkResults && bulkView}
             {!loading && !results && !bulkResults && emptyState}
           </div>
