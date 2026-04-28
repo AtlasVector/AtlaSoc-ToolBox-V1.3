@@ -1,3 +1,5 @@
+import React from 'react';
+
 
 const __TWEAKS_STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
@@ -373,8 +375,8 @@ function TweakButton({ label, onClick, secondary = false }) {
   );
 }
 
-Object.assign(window, {
+export {
   useTweaks, TweaksPanel, TweakSection, TweakRow,
   TweakSlider, TweakToggle, TweakRadio, TweakSelect,
   TweakText, TweakNumber, TweakColor, TweakButton,
-});
+};

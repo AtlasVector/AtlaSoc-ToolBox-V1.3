@@ -1,0 +1,955 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { useTweaks, TweaksPanel, TweakRadio, TweakColor } from './tweaks-panel.jsx';
+
+
+// ─── API config ──────────────────────────────────────────────────────────────
+// Calls go to /api/* on the same domain — no secrets, no keys in the browser.
+// Keys live only in Cloudflare Pages environment variables (server-side).
+const API_BASE = '/api';
+
+const ENDPOINT_MAP = {
+  vt:      ['ip','ip6','domain','url','hash-md5','hash-sha1','hash-sha256','email','filename'],
+  abuse:   ['ip','ip6'],
+  shodan:  ['ip','ip6'],
+  otx:     ['ip','ip6','domain','url','hash-md5','hash-sha1','hash-sha256','email'],
+  urlscan: ['domain','url'],
+  whois:   ['ip','ip6','domain','email'],
+  bazaar:  ['hash-md5','hash-sha1','hash-sha256','filename'],
+};
+
+async function fetchSource(endpoint, ioc, type) {
+  try {
+    const res = await fetch(
+      `${API_BASE}/${endpoint}?ioc=${encodeURIComponent(ioc)}&type=${encodeURIComponent(type)}`
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return null; // fall through to mock
+  }
+}
+
+async function getLiveResults(val, type) {
+  const t = type || detectType(val) || 'unknown';
+  const applicableEndpoints = Object.entries(ENDPOINT_MAP)
+    .filter(([, types]) => types.includes(t))
+    .map(([ep]) => ep);
+
+  const fetches = applicableEndpoints.map(ep => fetchSource(ep, val, t));
+  const responses = await Promise.all(fetches);
+
+  // If all failed (no API_SECRET set / offline), fall back to mock
+  if (responses.every(r => r === null)) return null;
+
+  // Map raw API responses to our normalized shape + fill missing with mock
+  const mock = getMockResults(val, t);
+  return responses.map((resp, i) => {
+    if (resp === null || resp.error) {
+      // Use mock for this source
+      const ep = applicableEndpoints[i];
+      const sourceNames = { vt:'VirusTotal', abuse:'AbuseIPDB', shodan:'Shodan', otx:'AlienVault OTX', urlscan:'URLScan.io', whois:'WHOIS / RDAP', bazaar:'MalwareBazaar' };
+      const mockMatch = mock.find(m => m.source === sourceNames[ep]);
+      return mockMatch ? { ...mockMatch, _mock: true } : null;
+    }
+    return { ...resp, _mock: false };
+  }).filter(Boolean);
+}
+
+// ─── Mock data engine ────────────────────────────────────────────────────────
+const seed = (str) => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+  return Math.abs(h);
+};
+const pick = (arr, s) => arr[s % arr.length];
+const between = (s, min, max) => min + (s % (max - min + 1));
+
+function detectType(val) {
+  val = val.trim();
+  if (!val) return null;
+  if (/^CVE-\d{4}-\d+$/i.test(val)) return 'cve';
+  if (/^[a-f0-9]{32}$/i.test(val)) return 'hash-md5';
+  if (/^[a-f0-9]{40}$/i.test(val)) return 'hash-sha1';
+  if (/^[a-f0-9]{64}$/i.test(val)) return 'hash-sha256';
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return 'email';
+  if (/^https?:\/\//i.test(val)) return 'url';
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(val)) return 'ip';
+  if (/^[0-9a-f:]+$/i.test(val) && val.includes(':')) return 'ip6';
+  if (/\.(exe|dll|bat|ps1|sh|py|js|vbs|jar|zip|rar|pdf|doc|xls)$/i.test(val)) return 'filename';
+  if (/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z]{2,})+$/i.test(val)) return 'domain';
+  return 'unknown';
+}
+
+const COUNTRIES = ['United States','Germany','Netherlands','Russia','China','Brazil','France','United Kingdom','Singapore','Ukraine'];
+const ISPS = ['Amazon AWS','Cloudflare','DigitalOcean','Hetzner Online','OVH SAS','Linode','Microsoft Azure','Google Cloud','Vultr Holdings','Tencent Cloud'];
+const MALWARE_FAMILIES = ['Emotet','AgentTesla','RedLine','AsyncRAT','FormBook','QakBot','NanoCore','Remcos','GuLoader','Lokibot'];
+const CATEGORIES = ['malware','phishing','spam','botnet','c2','ransomware','trojan','adware','exploit','cryptominer'];
+const FILE_TYPES = ['Win32 EXE','PDF Document','Microsoft Office','ZIP Archive','Python Script','Shell Script','Java JAR'];
+
+function getMockVT(val, type, s) {
+  const detected = between(s, 0, 89);
+  const total = 89;
+  const isMalicious = detected > 3;
+  return {
+    source: 'VirusTotal',
+    icon: '🔬',
+    status: detected === 0 ? 'clean' : detected <= 5 ? 'suspicious' : 'malicious',
+    detected, total,
+    lastAnalysis: `2026-04-${String(between(s, 10, 27)).padStart(2,'0')}`,
+    categories: isMalicious ? [pick(CATEGORIES, s), pick(CATEGORIES, s+1)].filter((v,i,a)=>a.indexOf(v)===i) : [],
+    permalink: `https://www.virustotal.com/gui/${type}/${val.slice(0,8)}`,
+    tags: isMalicious ? ['malicious', pick(MALWARE_FAMILIES, s)] : ['clean'],
+    communityScore: isMalicious ? between(s, -100, -10) : between(s, 20, 80),
+    fileType: type === 'hash-md5' || type === 'hash-sha256' ? pick(FILE_TYPES, s) : null,
+    fileSize: type.startsWith('hash') ? `${between(s, 10, 8000)} KB` : null,
+    firstSeen: `2026-0${between(s,1,4)}-${String(between(s,1,28)).padStart(2,'0')}`,
+  };
+}
+
+function getMockAbuse(val, s) {
+  const score = between(s, 0, 100);
+  return {
+    source: 'AbuseIPDB',
+    icon: '🛡',
+    status: score > 60 ? 'malicious' : score > 20 ? 'suspicious' : 'clean',
+    abuseScore: score,
+    country: pick(COUNTRIES, s),
+    isp: pick(ISPS, s+2),
+    domain: `${pick(['host','mail','srv','cdn'],s)}.${pick(['example','cloud','net','server'],s+1)}.com`,
+    totalReports: between(s, 0, 340),
+    numDistinctUsers: between(s, 0, 80),
+    usageType: pick(['Data Center/Web Hosting/Transit','ISP','Business','Education','Mobile Provider'], s),
+    lastReported: score > 0 ? `2026-04-${String(between(s,10,27)).padStart(2,'0')}` : null,
+    isWhitelisted: score === 0,
+    tor: between(s, 0, 10) > 8,
+    ipVersion: 4,
+  };
+}
+
+function getMockShodan(val, s) {
+  const ports = [];
+  const allPorts = [21,22,23,25,53,80,443,445,3389,8080,8443,6379,27017];
+  for (let i = 0; i < between(s,1,6); i++) ports.push(allPorts[(s+i*3) % allPorts.length]);
+  const uniquePorts = [...new Set(ports)].sort((a,b)=>a-b);
+  return {
+    source: 'Shodan',
+    icon: '📡',
+    status: uniquePorts.includes(3389) || uniquePorts.includes(23) ? 'suspicious' : 'info',
+    ports: uniquePorts,
+    hostnames: [`${pick(['mail','static','host','api'],s)}.${pick(['example','cloud','net'],s+1)}.com`],
+    os: pick([null, null, 'Linux 3.x','Windows Server 2019','Ubuntu 20.04'], s),
+    org: pick(ISPS, s+3),
+    country: pick(COUNTRIES, s+1),
+    asn: `AS${between(s, 1000, 65000)}`,
+    vulns: between(s, 0, 5) > 3 ? [`CVE-2021-${between(s,1000,9999)}`, `CVE-2022-${between(s,1000,9999)}`] : [],
+    lastSeen: `2026-04-${String(between(s,5,27)).padStart(2,'0')}`,
+    tags: uniquePorts.includes(22) ? ['ssh'] : [],
+  };
+}
+
+function getMockOTX(val, s) {
+  const pulses = between(s, 0, 47);
+  return {
+    source: 'AlienVault OTX',
+    icon: '👁',
+    status: pulses > 10 ? 'malicious' : pulses > 2 ? 'suspicious' : 'clean',
+    pulses,
+    threatScore: between(s, 0, 10),
+    categories: pulses > 0 ? [pick(CATEGORIES, s), pick(CATEGORIES, s+3)].filter((v,i,a)=>a.indexOf(v)===i) : [],
+    malwareFamilies: pulses > 5 ? [pick(MALWARE_FAMILIES, s)] : [],
+    relatedIndicators: between(s, 0, 28),
+    firstSeen: `2025-${String(between(s,1,12)).padStart(2,'0')}-01`,
+    lastSeen: `2026-04-${String(between(s,1,27)).padStart(2,'0')}`,
+    adversaries: pulses > 10 ? [pick(['APT28','Lazarus Group','FIN7','Cobalt Group','TA505'], s)] : [],
+  };
+}
+
+function getMockURLScan(val, s) {
+  const isMalicious = between(s, 0, 10) > 6;
+  const techs = [['Nginx','React','Cloudflare'],['Apache','WordPress','jQuery'],['IIS','ASP.NET'],['Nginx','Vue.js'],['Apache','PHP','Bootstrap']];
+  return {
+    source: 'URLScan.io',
+    icon: '🌐',
+    status: isMalicious ? 'malicious' : 'clean',
+    verdicts: { malicious: isMalicious, suspicious: !isMalicious && between(s,0,5)>3 },
+    score: between(s, 0, 100),
+    ip: `${between(s,1,254)}.${between(s+1,1,254)}.${between(s+2,1,254)}.${between(s+3,1,254)}`,
+    country: pick(COUNTRIES, s+2),
+    server: pick(['nginx/1.18','Apache/2.4','cloudflare','IIS/10.0'], s),
+    title: isMalicious ? pick(['Login - Secure Portal','Account Verification Required','PayPal Security Check'], s) : `Page title for ${val.slice(0,20)}`,
+    technologies: techs[s % techs.length],
+    domainAge: `${between(s, 1, 3650)} days`,
+    screenshot: null,
+  };
+}
+
+function getMockWHOIS(val, type, s) {
+  const isIP = type === 'ip' || type === 'ip6';
+  const tlds = ['.com','.net','.org','.io','.co'];
+  const registrars = ['GoDaddy LLC','Namecheap Inc.','Google Domains','Cloudflare Inc.','Network Solutions'];
+  const year = between(s, 2005, 2023);
+  return {
+    source: 'WHOIS / RDAP',
+    icon: '📋',
+    registrar: isIP ? null : pick(registrars, s),
+    created: `${year}-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
+    updated: `2025-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
+    expires: isIP ? null : `${year + between(s,1,10)}-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
+    nameservers: isIP ? null : [`ns1${pick(tlds,s)}`, `ns2${pick(tlds,s+1)}`],
+    asn: isIP ? `AS${between(s, 1000, 65000)}` : null,
+    cidr: isIP ? `${val.split('.').slice(0,3).join('.')}.0/24` : null,
+    asnOrg: isIP ? pick(ISPS, s+1) : null,
+    country: pick(COUNTRIES, s+4),
+    privacyProtected: between(s, 0, 3) > 1,
+    status: isIP ? 'ALLOCATED' : pick(['active','clientTransferProhibited'], s),
+  };
+}
+
+function getMockMalwareBazaar(val, s) {
+  const found = between(s, 0, 5) > 1;
+  return {
+    source: 'MalwareBazaar',
+    icon: '☣️',
+    status: found ? 'malicious' : 'clean',
+    found,
+    malwareFamily: found ? pick(MALWARE_FAMILIES, s) : null,
+    fileType: found ? pick(['exe','dll','doc','zip','pdf','js'], s) : null,
+    firstSeen: found ? `2026-0${between(s,1,4)}-${String(between(s,1,28)).padStart(2,'0')}` : null,
+    deliveryMethod: found ? pick(['email','drive-by','exploit-kit','social-engineering'], s) : null,
+    tags: found ? [pick(CATEGORIES,s), pick(CATEGORIES,s+2)].filter((v,i,a)=>a.indexOf(v)===i) : [],
+    reporter: found ? pick(['abuse.ch','security-team','anonymous'], s) : null,
+    signature: found ? `${pick(MALWARE_FAMILIES,s+1)}.${pick(['Gen','Trojan','Downloader'],s)}` : null,
+  };
+}
+
+function getMockResults(val, type) {
+  const s = seed(val);
+  const results = [];
+  const t = type || detectType(val) || 'unknown';
+  if (['ip','ip6'].includes(t)) {
+    results.push(getMockVT(val,'ip',s), getMockAbuse(val,s), getMockShodan(val,s), getMockOTX(val,s), getMockWHOIS(val,t,s));
+  } else if (t === 'domain') {
+    results.push(getMockVT(val,'domain',s), getMockURLScan(val,s), getMockOTX(val,s), getMockWHOIS(val,t,s));
+  } else if (t === 'url') {
+    results.push(getMockVT(val,'url',s), getMockURLScan(val,s), getMockOTX(val,s));
+  } else if (t.startsWith('hash')) {
+    results.push(getMockVT(val,t,s), getMockMalwareBazaar(val,s), getMockOTX(val,s));
+  } else if (t === 'email') {
+    const domain = val.split('@')[1] || val;
+    results.push(getMockVT(domain,'domain',s), getMockWHOIS(domain,'domain',s), getMockOTX(val,s));
+  } else if (t === 'cve') {
+    const cvss = (between(s,0,100)/10).toFixed(1);
+    results.push({
+      source: 'CVE Details', icon: '⚠️', status: parseFloat(cvss) > 7 ? 'malicious' : parseFloat(cvss) > 4 ? 'suspicious' : 'clean',
+      cvss, severity: parseFloat(cvss) > 9 ? 'CRITICAL' : parseFloat(cvss) > 7 ? 'HIGH' : parseFloat(cvss) > 4 ? 'MEDIUM' : 'LOW',
+      published: `2025-${String(between(s,1,12)).padStart(2,'0')}-${String(between(s,1,28)).padStart(2,'0')}`,
+      description: `A ${pick(['buffer overflow','use-after-free','SQL injection','XSS','path traversal','privilege escalation'],s)} vulnerability in ${pick(['Linux kernel','OpenSSL','Apache HTTP','nginx','Microsoft Windows','Chrome'],s+1)} allows ${pick(['remote attackers','local users','authenticated users'],s+2)} to ${pick(['execute arbitrary code','cause a denial of service','gain elevated privileges','read sensitive data'],s+3)}.`,
+      affectedProducts: [`${pick(['Linux','Windows','Apache','OpenSSL','nginx'],s)} ${between(s,1,19)}.${between(s+1,0,9)}.x`],
+      patch: pick(['Available','Partial','None'], s),
+      exploitAvailable: between(s,0,5) > 3,
+    });
+  } else if (t === 'filename') {
+    results.push(getMockVT(val,'filename',s), getMockMalwareBazaar(val,s));
+  } else {
+    results.push(getMockVT(val,'unknown',s), getMockOTX(val,s));
+  }
+  return results;
+}
+
+// ─── Status helpers ──────────────────────────────────────────────────────────
+const STATUS_COLOR = {malicious:'var(--danger)',suspicious:'var(--amber)',clean:'var(--safe)',info:'var(--accent)',unknown:'var(--text-muted)'};
+const STATUS_LABEL = {malicious:'Malicious',suspicious:'Suspicious',clean:'Clean',info:'Info',unknown:'Unknown'};
+const IOC_LABELS = {'ip':'IPv4','ip6':'IPv6','domain':'Domain','url':'URL','email':'Email','hash-md5':'MD5 Hash','hash-sha1':'SHA-1 Hash','hash-sha256':'SHA-256 Hash','cve':'CVE','filename':'File Name','unknown':'Unknown'};
+
+// ─── UI Components ───────────────────────────────────────────────────────────
+const Badge = ({label, color, small}) => (
+  <span style={{display:'inline-flex',alignItems:'center',gap:4,padding:small?'2px 7px':'3px 9px',borderRadius:100,fontSize:small?11:12,fontWeight:600,background:`${color}18`,color,border:`1px solid ${color}28`,letterSpacing:'0.02em',textTransform:'uppercase'}}>
+    {label}
+  </span>
+);
+
+const Dot = ({status}) => (
+  <span style={{width:7,height:7,borderRadius:'50%',background:STATUS_COLOR[status]||'var(--text-muted)',display:'inline-block',boxShadow:`0 0 6px ${STATUS_COLOR[status]||'transparent'}`}}/>
+);
+
+const DetectionBar = ({detected, total}) => {
+  const pct = total > 0 ? (detected/total)*100 : 0;
+  const color = detected===0?'var(--safe)':detected<=5?'var(--amber)':'var(--danger)';
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+        <span style={{fontFamily:'var(--mono)',fontSize:13,color}}>{detected}<span style={{color:'var(--text-muted)',fontWeight:400}}>/{total} engines</span></span>
+        <span style={{fontSize:12,color:'var(--text-muted)'}}>{pct.toFixed(1)}% detection rate</span>
+      </div>
+      <div style={{height:6,background:'var(--surface3)',borderRadius:3,overflow:'hidden'}}>
+        <div style={{width:`${pct}%`,height:'100%',background:color,borderRadius:3,transition:'width 0.8s ease'}}/>
+      </div>
+    </div>
+  );
+};
+
+const ScoreRing = ({score, label, max=100, color}) => {
+  const c = color || (score>60?'var(--danger)':score>30?'var(--amber)':'var(--safe)');
+  const pct = Math.min(100, score/max*100);
+  const r = 28, circ = 2*Math.PI*r;
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+      <svg width={72} height={72} viewBox="0 0 72 72" style={{transform:'rotate(-90deg)'}}>
+        <circle cx={36} cy={36} r={r} fill="none" stroke="var(--surface3)" strokeWidth={5}/>
+        <circle cx={36} cy={36} r={r} fill="none" stroke={c} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={circ*(1-pct/100)} strokeLinecap="round" style={{transition:'stroke-dashoffset 0.8s ease'}}/>
+        <text x={36} y={36} textAnchor="middle" dominantBaseline="middle" style={{fill:'var(--text)',fontSize:15,fontFamily:'var(--mono)',fontWeight:700,transform:'rotate(90deg) translate(-72px,0)'}}>{score}</text>
+      </svg>
+      <span style={{fontSize:11,color:'var(--text-muted)',textAlign:'center',textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</span>
+    </div>
+  );
+};
+
+const InfoRow = ({label, value, mono, color}) => (
+  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,padding:'7px 0',borderBottom:'1px solid var(--border)'}}>
+    <span style={{color:'var(--text-muted)',fontSize:12,flexShrink:0,minWidth:120}}>{label}</span>
+    <span style={{fontFamily:mono?'var(--mono)':undefined,fontSize:mono?12:13,color:color||'var(--text)',textAlign:'right',wordBreak:'break-all'}}>{value}</span>
+  </div>
+);
+
+const Tag = ({text, danger, warn}) => (
+  <span style={{display:'inline-block',padding:'2px 8px',borderRadius:4,fontSize:11,fontWeight:500,background:danger?'rgba(239,68,68,0.12)':warn?'rgba(245,158,11,0.12)':'var(--surface3)',color:danger?'var(--danger)':warn?'var(--amber)':'var(--text-dim)',border:`1px solid ${danger?'rgba(239,68,68,0.2)':warn?'rgba(245,158,11,0.2)':'var(--border2)'}`,textTransform:'uppercase',letterSpacing:'0.04em'}}>
+    {text}
+  </span>
+);
+
+// ─── Source panel renderers ───────────────────────────────────────────────────
+function renderVT(d) {
+  const score = d.reputation ?? d.communityScore ?? null;
+  const harmless = d.harmless ?? 0;
+  const suspicious = d.suspicious ?? 0;
+  const undetected = d.undetected ?? 0;
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      <DetectionBar detected={d.detected} total={d.total}/>
+      {(harmless > 0 || suspicious > 0 || undetected > 0) && (
+        <div style={{display:'flex',gap:12}}>
+          {harmless > 0 && <span style={{fontSize:12,color:'var(--safe)'}}>✓ {harmless} harmless</span>}
+          {suspicious > 0 && <span style={{fontSize:12,color:'var(--amber)'}}>⚠ {suspicious} suspicious</span>}
+          {undetected > 0 && <span style={{fontSize:12,color:'var(--text-muted)'}}>— {undetected} undetected</span>}
+        </div>
+      )}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div>
+          {d.fileType && <InfoRow label="File Type" value={d.fileType}/>}
+          {d.fileSize && <InfoRow label="File Size" value={d.fileSize}/>}
+          {d.firstSeen && <InfoRow label="First Seen" value={d.firstSeen} mono/>}
+          {d.lastAnalysis && <InfoRow label="Last Analysis" value={d.lastAnalysis} mono/>}
+          {score != null && <InfoRow label="Reputation Score" value={score > 0 ? `+${score}` : String(score)} color={score>0?'var(--safe)':score<0?'var(--danger)':'var(--text-muted)'}/>}
+          {d.permalink && <InfoRow label="Full Report" value={<a href={d.permalink} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>Open in VirusTotal ↗</a>}/>}
+        </div>
+        <div>
+          {d.categories?.length > 0 && <div style={{marginBottom:8}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.categories.map(c=><Tag key={c} text={c} danger/>)}</div></div>}
+          {d.tags?.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Tags</span><div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>{d.tags.map(t=><Tag key={t} text={t} danger={t!=='clean'}/>)}</div></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderAbuse(d) {
+  const score = d.abuseScore ?? 0;
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{display:'flex',alignItems:'center',gap:20}}>
+        <ScoreRing score={score} label="Abuse Score"/>
+        <div style={{flex:1}}>
+          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.isp && <InfoRow label="ISP" value={d.isp}/>}
+          {d.usageType && <InfoRow label="Usage Type" value={d.usageType}/>}
+          {d.totalReports != null && <InfoRow label="Total Reports" value={d.totalReports} mono/>}
+          {d.numDistinctUsers != null && <InfoRow label="Distinct Users" value={d.numDistinctUsers} mono/>}
+          {d.lastReported && <InfoRow label="Last Reported" value={d.lastReported} mono/>}
+        </div>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        {d.isWhitelisted && <Tag text="whitelisted"/>}
+        {d.tor && <Tag text="TOR exit node" warn/>}
+        {score > 80 && <Tag text="high confidence" danger/>}
+      </div>
+    </div>
+  );
+}
+
+function renderShodan(d) {
+  if (!d.found) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>📡</div><div>No Shodan data found for this IP</div></div>;
+  const ports = d.ports || [];
+  const hostnames = d.hostnames || [];
+  const vulns = d.vulns || [];
+  const tags = d.tags || [];
+  const services = d.services || [];
+  return (
+    <div>
+      {ports.length > 0 && <div style={{marginBottom:12}}>
+        <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Open Ports</span>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}}>
+          {ports.map(p=><span key={p} style={{padding:'3px 10px',borderRadius:4,background:'var(--surface3)',fontFamily:'var(--mono)',fontSize:12,color:p===3389||p===23?'var(--danger)':p===22||p===21?'var(--amber)':'var(--text)'}}>{p}</span>)}
+        </div>
+      </div>}
+      {d.asn && <InfoRow label="ASN" value={d.asn} mono/>}
+      {(d.org||d.isp) && <InfoRow label="Organization" value={d.org||d.isp}/>}
+      {d.country && <InfoRow label="Country" value={d.country}/>}
+      {d.city && <InfoRow label="City" value={d.city}/>}
+      {d.os && <InfoRow label="OS" value={d.os}/>}
+      {hostnames.map((h,i)=><InfoRow key={i} label={i===0?'Hostname':''} value={h} mono/>)}
+      {d.lastSeen && <InfoRow label="Last Seen" value={d.lastSeen} mono/>}
+      {vulns.length > 0 && <div style={{marginTop:12}}><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Vulnerabilities</span><div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:6}}>{vulns.map(v=><Tag key={v} text={v} danger/>)}</div></div>}
+      {services.length > 0 && <div style={{marginTop:12}}>
+        <span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Services</span>
+        {services.map((s,i)=><div key={i} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+          <span style={{fontFamily:'var(--mono)',color:'var(--accent)',width:50,flexShrink:0}}>{s.port}/{s.transport}</span>
+          <span style={{color:'var(--text-dim)'}}>{[s.product,s.version].filter(Boolean).join(' ')||'—'}</span>
+        </div>)}
+      </div>}
+      {tags.length > 0 && <div style={{marginTop:12,display:'flex',gap:4,flexWrap:'wrap'}}>{tags.map(t=><Tag key={t} text={t}/>)}</div>}
+    </div>
+  );
+}
+
+function renderOTX(d) {
+  const pulses = d.pulses ?? 0;
+  const threatScore = d.threatScore ?? 0;
+  const malwareFamilies = d.malwareFamilies || [];
+  const adversaries = d.adversaries || [];
+  const categories = d.categories || [];
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{display:'flex',gap:20,alignItems:'center'}}>
+        <ScoreRing score={pulses} max={50} label="Pulses" color={pulses>10?'var(--danger)':pulses>2?'var(--amber)':'var(--safe)'}/>
+        <ScoreRing score={threatScore} max={10} label="Threat Score" color={threatScore>7?'var(--danger)':threatScore>4?'var(--amber)':'var(--safe)'}/>
+        <div style={{flex:1}}>
+          {d.firstSeen && <InfoRow label="First Seen" value={d.firstSeen} mono/>}
+          {d.lastSeen && <InfoRow label="Last Seen" value={d.lastSeen} mono/>}
+          {d.relatedIndicators != null && <InfoRow label="Related IoCs" value={d.relatedIndicators} mono/>}
+        </div>
+      </div>
+      {malwareFamilies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Malware Families</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{malwareFamilies.map(m=><Tag key={m} text={m} danger/>)}</div></div>}
+      {adversaries.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Adversaries</span><div style={{display:'flex',gap:4,marginTop:6}}>{adversaries.map(a=><Tag key={a} text={a} danger/>)}</div></div>}
+      {categories.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Categories</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{categories.map(c=><Tag key={c} text={c} warn/>)}</div></div>}
+      {malwareFamilies.length===0 && adversaries.length===0 && pulses===0 && <div style={{color:'var(--text-muted)',fontSize:13,padding:'8px 0'}}>No threat intelligence pulses found for this indicator.</div>}
+    </div>
+  );
+}
+
+function renderURLScan(d) {
+  if (!d.found && !d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>🌐</div><div>No URLScan results found for this indicator</div></div>;
+  if (d.scanning) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>⏳</div><div style={{fontWeight:600,marginBottom:4}}>Scan submitted</div><div style={{fontSize:12,marginBottom:12}}>{d.message}</div>{d.reportUrl&&<a href={d.reportUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>View results when ready ↗</a>}</div>;
+  const technologies = d.technologies || [];
+  const verdicts = d.verdicts || {};
+  const isMalicious = verdicts.malicious;
+  const isSuspicious = verdicts.suspicious;
+  return (
+    <div>
+      <div style={{display:'flex',gap:20,marginBottom:16,alignItems:'flex-start'}}>
+        <div style={{flex:'none',width:180,height:100,background:'var(--surface3)',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid var(--border2)',overflow:'hidden',position:'relative'}}>
+          {d.screenshot
+            ? <img src={d.screenshot} alt="screenshot" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            : <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:11}}>
+                <div style={{fontSize:20,marginBottom:4}}>🖥</div>
+                <div>Screenshot</div>
+                <div style={{fontSize:10,marginTop:2}}>Live scan required</div>
+              </div>}
+        </div>
+        <div style={{flex:1}}>
+          {d.ip && <InfoRow label="Resolved IP" value={d.ip} mono/>}
+          {d.country && <InfoRow label="Country" value={d.country}/>}
+          {d.server && <InfoRow label="Server" value={d.server} mono/>}
+          {d.title && <InfoRow label="Page Title" value={d.title}/>}
+          {d.domainAge && <InfoRow label="Domain Age" value={d.domainAge}/>}
+          {d.reportUrl && <InfoRow label="Full Report" value={<a href={d.reportUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)',fontSize:12}}>Open in URLScan ↗</a>}/>}
+        </div>
+      </div>
+      {technologies.length > 0 && <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Technologies Detected</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{technologies.map(t=><Tag key={t} text={t}/>)}</div></div>}
+      <div style={{display:'flex',gap:8,marginTop:12}}>
+        {isMalicious && <Tag text="malicious verdict" danger/>}
+        {isSuspicious && <Tag text="suspicious verdict" warn/>}
+        {!isMalicious && !isSuspicious && <Tag text="clean verdict"/>}
+      </div>
+    </div>
+  );
+}
+
+function renderWHOIS(d) {
+  if (d.error) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{color:'var(--amber)',fontWeight:600,marginBottom:4}}>WHOIS lookup failed</div><div style={{fontSize:12}}>{d.error}</div></div>;
+  const nameservers = d.nameservers || [];
+  const status = Array.isArray(d.status) ? d.status : [d.status].filter(Boolean);
+  return (
+    <div>
+      {d.handle && <InfoRow label="Handle" value={d.handle} mono/>}
+      {d.name && <InfoRow label="Name" value={d.name}/>}
+      {d.registrar && <InfoRow label="Registrar" value={d.registrar}/>}
+      {d.privacyProtected && <InfoRow label="Privacy" value="Protected (Redacted)" color="var(--text-muted)"/>}
+      {d.created && <InfoRow label="Created" value={d.created} mono/>}
+      {d.updated && <InfoRow label="Updated" value={d.updated} mono/>}
+      {d.expires && <InfoRow label="Expires" value={d.expires} mono/>}
+      {d.country && <InfoRow label="Country" value={d.country}/>}
+      {d.asn && <InfoRow label="ASN" value={d.asn} mono/>}
+      {d.cidr && <InfoRow label="CIDR" value={d.cidr} mono/>}
+      {d.startAddress && <InfoRow label="IP Range Start" value={d.startAddress} mono/>}
+      {d.endAddress && <InfoRow label="IP Range End" value={d.endAddress} mono/>}
+      {nameservers.map((ns,i)=><InfoRow key={i} label={i===0?'Nameservers':''} value={ns} mono/>)}
+      {status.length > 0 && <InfoRow label="Status" value={status.join(', ')} mono/>}
+    </div>
+  );
+}
+
+function renderMalwareBazaar(d) {
+  if (!d.found) return <div style={{padding:'24px 0',textAlign:'center',color:'var(--safe)'}}><div style={{fontSize:32,marginBottom:8}}>✓</div><div style={{fontWeight:600}}>Not found in MalwareBazaar</div><div style={{color:'var(--text-muted)',marginTop:4,fontSize:13}}>No known malware samples match this indicator</div></div>;
+  return (
+    <div>
+      <InfoRow label="Malware Family" value={d.malwareFamily} color="var(--danger)"/>
+      <InfoRow label="File Type" value={d.fileType} mono/>
+      <InfoRow label="First Seen" value={d.firstSeen} mono/>
+      <InfoRow label="Delivery Method" value={d.deliveryMethod}/>
+      <InfoRow label="Reporter" value={d.reporter}/>
+      {d.signature && <InfoRow label="Signature" value={d.signature} mono/>}
+      {d.tags.length > 0 && <div style={{marginTop:12}}><div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{d.tags.map(t=><Tag key={t} text={t} danger/>)}</div></div>}
+    </div>
+  );
+}
+
+function renderCVE(d) {
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:16}}>
+        <ScoreRing score={parseFloat(d.cvss)} max={10} label="CVSS Score" color={parseFloat(d.cvss)>9?'var(--danger)':parseFloat(d.cvss)>7?'var(--warning)':parseFloat(d.cvss)>4?'var(--amber)':'var(--safe)'}/>
+        <div style={{flex:1}}>
+          <div style={{marginBottom:8}}><Badge label={d.severity} color={parseFloat(d.cvss)>9?'var(--danger)':parseFloat(d.cvss)>7?'var(--warning)':parseFloat(d.cvss)>4?'var(--amber)':'var(--safe)'}/></div>
+          <InfoRow label="Published" value={d.published} mono/>
+          <InfoRow label="Patch" value={d.patch} color={d.patch==='Available'?'var(--safe)':d.patch==='Partial'?'var(--amber)':'var(--danger)'}/>
+          <InfoRow label="Exploit Available" value={d.exploitAvailable?'Yes':'No'} color={d.exploitAvailable?'var(--danger)':'var(--safe)'}/>
+        </div>
+      </div>
+      <div style={{padding:12,background:'var(--surface3)',borderRadius:6,fontSize:13,color:'var(--text-dim)',lineHeight:1.6,marginBottom:12}}>{d.description}</div>
+      <div><span style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Affected Products</span><div style={{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}}>{d.affectedProducts.map(p=><Tag key={p} text={p}/>)}</div></div>
+    </div>
+  );
+}
+
+function renderSource(d) {
+  try {
+    if (d.source === 'VirusTotal') return renderVT(d);
+    if (d.source === 'AbuseIPDB') return renderAbuse(d);
+    if (d.source === 'Shodan') return renderShodan(d);
+    if (d.source === 'AlienVault OTX') return renderOTX(d);
+    if (d.source === 'URLScan.io') return renderURLScan(d);
+    if (d.source === 'WHOIS / RDAP') return renderWHOIS(d);
+    if (d.source === 'MalwareBazaar') return renderMalwareBazaar(d);
+    if (d.source === 'CVE Details') return renderCVE(d);
+    return null;
+  } catch(e) {
+    return <div style={{padding:16,color:'var(--text-muted)',fontSize:13,background:'var(--surface3)',borderRadius:8}}>
+      <div style={{color:'var(--amber)',fontWeight:600,marginBottom:6}}>⚠ Could not render {d.source} results</div>
+      <div style={{fontFamily:'var(--mono)',fontSize:11,opacity:0.7}}>{e.message}</div>
+    </div>;
+  }
+}
+
+// ─── Logo Mark ───────────────────────────────────────────────────────────────
+const LogoMark = ({size = 22}) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 96" width={size} height={Math.round(size * 1.2)} style={{flexShrink:0,color:'var(--accent)'}}>
+    <defs>
+      <clipPath id="av-lmc">
+        <path d="M 40 2 L 78 17 L 78 50 C 78 72 58 89 40 95 C 22 89 2 72 2 50 L 2 17 Z" />
+      </clipPath>
+    </defs>
+    <path d="M 40 2 L 78 17 L 78 50 C 78 72 58 89 40 95 C 22 89 2 72 2 50 L 2 17 Z" fill="#0b1628" />
+    <g clipPath="url(#av-lmc)">
+      <rect x="0" y="74" width="80" height="22" fill="#060f1c" />
+      <polygon points="2,74 14,58 26,74" fill="#081a2a" />
+      <polygon points="54,74 66,58 78,74" fill="#071628" />
+      <polygon points="18,76 40,44 62,76" fill="#0e2a40" />
+      <polyline points="18,76 40,44 62,76" fill="none" stroke="currentColor" strokeWidth="1.3" strokeOpacity="0.85" strokeLinejoin="round" />
+      <polygon points="36.5,52 40,44 43.5,52" fill="currentColor" opacity="0.45" />
+      <circle cx="40" cy="44" r="14" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="7.5 4.5" strokeDashoffset="4" opacity="0.75" />
+      <circle cx="40" cy="44" r="5.5" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.9" />
+      <circle cx="40" cy="44" r="2" fill="currentColor" />
+      <line x1="40" y1="24" x2="40" y2="36" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.9" />
+      <line x1="40" y1="52" x2="40" y2="64" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.9" />
+      <line x1="20" y1="44" x2="31" y2="44" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.9" />
+      <line x1="49" y1="44" x2="60" y2="44" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.9" />
+      <path d="M 10,20 H 18 V 28 H 26" fill="none" stroke="currentColor" strokeWidth="0.75" strokeOpacity="0.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="8" y="18" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="0.7" strokeOpacity="0.5" />
+      <circle cx="26" cy="28" r="1.5" fill="currentColor" opacity="0.5" />
+      <path d="M 70,20 H 62 V 28 H 54" fill="none" stroke="currentColor" strokeWidth="0.75" strokeOpacity="0.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="68" y="18" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="0.7" strokeOpacity="0.5" />
+      <circle cx="54" cy="28" r="1.5" fill="currentColor" opacity="0.5" />
+    </g>
+    <path d="M 40 2 L 78 17 L 78 50 C 78 72 58 89 40 95 C 22 89 2 72 2 50 L 2 17 Z" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" />
+  </svg>
+);
+
+const BrandName = ({accent}) => (
+  <React.Fragment>Atlas<span style={{color:accent}}>Vec</span> <span style={{color:'var(--text-dim)',fontWeight:500}}>Kit</span>
+  </React.Fragment>
+);
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+const EXAMPLES = ['8.8.8.8','malicious.ru','https://phish.site/login','44d88612fea8a8f36de82e1278abb02f','CVE-2024-3094'];
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "dark",
+  "layout": "centered",
+  "accentColor": "#06b6d4",
+  "density": "comfortable"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [query, setQuery] = React.useState('');
+  const [bulkMode, setBulkMode] = React.useState(false);
+  const [bulkText, setBulkText] = React.useState('');
+  const [results, setResults] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [bulkResults, setBulkResults] = React.useState(null);
+  const [selectedBulk, setSelectedBulk] = React.useState(0);
+  const [activeBulkSource, setActiveBulkSource] = React.useState(0);
+
+  const theme = tweaks.theme;
+  const layout = tweaks.layout;
+  const accent = tweaks.accentColor;
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.style.setProperty('--accent', accent);
+    document.documentElement.style.setProperty('--accent-glow', accent + '26');
+    document.documentElement.style.setProperty('--accent-dim', accent + '14');
+  }, [theme, accent]);
+
+  const iocType = detectType(query);
+
+  const runSearchFor = async (val) => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    const t = detectType(trimmed);
+    setLoading(true);
+    setResults(null);
+    setBulkResults(null);
+    const live = await getLiveResults(trimmed, t);
+    setResults(live || getMockResults(trimmed, t));
+    setLoading(false);
+  };
+
+  const runSearch = () => runSearchFor(query);
+
+  const runBulk = async () => {
+    const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean).slice(0, 50);
+    if (!lines.length) return;
+    setLoading(true);
+    setResults(null);
+    setBulkResults(null);
+    const res = await Promise.all(lines.map(async val => {
+      const t = detectType(val);
+      const live = await getLiveResults(val, t);
+      return { val, type: t, sources: live || getMockResults(val, t) };
+    }));
+    setBulkResults(res);
+    setSelectedBulk(0);
+    setActiveBulkSource(0);
+    setLoading(false);
+  };
+
+  const exportJSON = () => {
+    const data = bulkResults
+      ? bulkResults.map(r=>({indicator:r.val,type:IOC_LABELS[r.type]||r.type,results:r.sources}))
+      : [{indicator:query,type:IOC_LABELS[iocType]||iocType,results}];
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    const blobUrl = URL.createObjectURL(blob);
+    a.href = blobUrl;
+    a.download = `atlasoc-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
+  };
+
+  const exportPDF = () => window.print();
+
+  const overallStatus = (sources) => {
+    if (!sources) return null;
+    if (sources.some(s=>s.status==='malicious')) return 'malicious';
+    if (sources.some(s=>s.status==='suspicious')) return 'suspicious';
+    return 'clean';
+  };
+
+  const isCompact = tweaks.density === 'compact';
+  const isSplit = layout === 'split';
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+  const resetHome = () => { setResults(null); setBulkResults(null); setQuery(''); setBulkText(''); setLoading(false); };
+
+  const Btn = ({onClick, children, active, accent: isAccent}) => (
+    <button onClick={onClick} style={{padding:'6px 13px',borderRadius:6,background:active||isAccent?`${accent}22`:'var(--surface2)',color:active||isAccent?accent:'var(--text-dim)',border:`1px solid ${active||isAccent?accent+'50':'var(--border2)'}`,fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:5,transition:'all 0.15s',letterSpacing:'0.01em'}}>
+      {children}
+    </button>
+  );
+
+  const hasResult = results || bulkResults;
+
+  const header = (
+    <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:`${isCompact?10:13}px 20px`,background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0,zIndex:10}}>
+      <button onClick={resetHome} style={{display:'flex',alignItems:'center',gap:10,background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:8,transition:'background 0.15s'}}>
+        <LogoMark size={28} />
+        <div style={{textAlign:'left'}}>
+          <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:15,letterSpacing:'-0.02em',lineHeight:1,color:'var(--text)'}}><BrandName accent={accent}/></div>
+          <div style={{fontFamily:'var(--font)',fontSize:9,color:'var(--text-muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginTop:2}}>Threat Intelligence</div>
+        </div>
+      </button>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {hasResult && <Btn onClick={resetHome}>⌂ Home</Btn>}
+        <Btn onClick={()=>setBulkMode(b=>!b)} active={bulkMode}>{bulkMode?'⊞ Bulk':'⊟ Single'}</Btn>
+        {hasResult && <>
+          <Btn onClick={exportJSON}>↓ JSON</Btn>
+          <Btn onClick={exportPDF}>⎙ PDF</Btn>
+        </>}
+        <button onClick={()=>setTweak('theme',theme==='dark'?'light':'dark')} style={{width:34,height:34,borderRadius:7,background:'var(--surface2)',border:'1px solid var(--border2)',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',transition:'all 0.15s'}}>
+          {theme==='dark'?'☀️':'🌙'}
+        </button>
+      </div>
+    </header>
+  );
+
+  // ── Search Input ─────────────────────────────────────────────────────────────
+  const searchBar = (
+    <div style={{display:'flex',flexDirection:'column',gap:8,width:'100%',maxWidth:isSplit?'100%':680}}>
+      {!bulkMode ? (
+        <div style={{position:'relative'}}>
+          <div style={{display:'flex',alignItems:'center',background:hasResult?'var(--surface)':'var(--bg)',border:`1.5px solid ${query&&iocType?accent+'60':hasResult?'var(--border)':'var(--border2)'}`,borderRadius:12,overflow:'hidden',transition:'all 0.25s',boxShadow:query&&iocType?`0 0 0 3px ${accent}14`:`0 2px 12px rgba(0,0,0,0.06)`}}>
+            <div style={{padding:'0 14px',color:'var(--text-muted)',fontSize:16,opacity:0.6}}>🔍</div>
+            <input
+              value={query}
+              onChange={e=>setQuery(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&runSearch()}
+              placeholder="Paste IP, domain, URL, hash, email, CVE…"
+              style={{flex:1,padding:'14px 0',fontSize:14,background:'transparent',color:'var(--text)'}}
+            />
+            {query && iocType && iocType !== 'unknown' && (
+              <div style={{padding:'0 12px'}}>
+                <Badge label={IOC_LABELS[iocType]||iocType} color={accent} small/>
+              </div>
+            )}
+            <button onClick={runSearch} style={{margin:5,padding:'0 18px',height:38,borderRadius:8,background:accent,color:'#000',fontWeight:700,fontSize:12,letterSpacing:'0.03em',transition:'opacity 0.2s',opacity:query?1:0.4,flexShrink:0}}>
+              ANALYZE
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{background:'var(--surface)',border:`1.5px solid var(--border)`,borderRadius:10,overflow:'hidden'}}>
+          <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:12,color:'var(--text-muted)',fontWeight:500}}>BULK MODE — One indicator per line (max 50)</span>
+            {(n => <Badge label={n > 50 ? `${n} → capped at 50` : `${n} indicators`} color={n > 50 ? 'var(--amber)' : accent} small/>)(bulkText.split('\n').filter(l=>l.trim()).length)}
+          </div>
+          <textarea
+            value={bulkText}
+            onChange={e=>setBulkText(e.target.value)}
+            placeholder={"8.8.8.8\nexample.com\nhttps://suspicious.site/path\n44d88612fea8a8f36de82e1278abb02f"}
+            rows={5}
+            style={{display:'block',width:'100%',padding:'12px 14px',fontSize:13,fontFamily:'var(--mono)',color:'var(--text)',background:'transparent',resize:'vertical'}}
+          />
+          <div style={{padding:'8px 10px',display:'flex',justifyContent:'flex-end',borderTop:'1px solid var(--border)'}}>
+            <button onClick={runBulk} style={{padding:'7px 20px',borderRadius:6,background:accent,color:'#000',fontWeight:700,fontSize:13}}>ANALYZE ALL</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  const loadingView = (
+    <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16}}>
+      <div style={{width:44,height:44,borderRadius:'50%',border:`3px solid var(--border)`,borderTopColor:accent,animation:'spin 0.8s linear infinite'}}/>
+      <div style={{color:'var(--text-muted)',fontSize:13}}>Querying threat intelligence sources…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  // ── Results Panel ────────────────────────────────────────────────────────────
+  const ResultsPanel = ({sources, val}) => {
+    const [tab, setTab] = React.useState(0);
+    const overall = overallStatus(sources);
+    return (
+      <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'var(--surface)',borderRadius:'10px 10px 0 0',border:'1px solid var(--border)',borderBottom:'none'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <Dot status={overall}/>
+            <span style={{fontFamily:'var(--mono)',fontSize:13,color:'var(--text-dim)'}}>{val}</span>
+            <Badge label={IOC_LABELS[detectType(val)]||'Unknown'} color={accent} small/>
+          </div>
+          <Badge label={STATUS_LABEL[overall]||'Unknown'} color={STATUS_COLOR[overall]||'var(--text-muted)'}/>
+        </div>
+        <div style={{display:'flex',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--surface2)',overflowX:'auto'}}>
+          {sources.map((s,i)=>(
+            <button key={i} onClick={()=>setTab(i)} style={{padding:'9px 16px',fontSize:12,fontWeight:600,color:tab===i?accent:'var(--text-muted)',borderBottom:`2px solid ${tab===i?accent:'transparent'}`,whiteSpace:'nowrap',transition:'all 0.15s',background:'transparent',display:'flex',alignItems:'center',gap:5}}>
+              <Dot status={s.status}/>{s.source}{s._mock&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'var(--amber)18',color:'var(--amber)',border:'1px solid var(--amber)30',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>}
+            </button>
+          ))}
+        </div>
+        <div style={{flex:1,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'0 0 10px 10px',padding:isCompact?12:16,overflowY:'auto'}}>
+          {sources[tab] && renderSource(sources[tab])}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Bulk Results ─────────────────────────────────────────────────────────────
+  const bulkView = bulkResults && (
+    <div style={{flex:1,display:'flex',gap:0,minHeight:0,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)'}}>
+      <div style={{width:220,flexShrink:0,background:'var(--surface)',borderRight:'1px solid var(--border)',overflowY:'auto'}}>
+        <div style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.05em',fontWeight:600}}>{bulkResults.length} Indicators</div>
+        {bulkResults.map((r,i)=>{
+          const st = overallStatus(r.sources);
+          return (
+            <button key={i} onClick={()=>setSelectedBulk(i)} style={{width:'100%',padding:'9px 12px',display:'flex',alignItems:'center',gap:8,background:selectedBulk===i?'var(--surface2)':'transparent',borderLeft:`3px solid ${selectedBulk===i?accent:'transparent'}`,textAlign:'left',transition:'all 0.1s'}}>
+              <Dot status={st}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontFamily:'var(--mono)',color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.val}</div>
+                <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.04em',marginTop:2}}>{IOC_LABELS[r.type]||'Unknown'}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,background:'var(--surface2)'}}>
+        {bulkResults[selectedBulk] && (
+          <div style={{flex:1,display:'flex',flexDirection:'column',padding:12,gap:0,minHeight:0}}>
+            <ResultsPanel sources={bulkResults[selectedBulk].sources} val={bulkResults[selectedBulk].val}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Empty state ──────────────────────────────────────────────────────────────
+  const emptyState = (
+    <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:24,padding:32,textAlign:'center'}}>
+      <div style={{opacity:0.3,fontSize:64}}>🛡</div>
+      <div>
+        <div style={{fontWeight:600,fontSize:16,color:'var(--text-dim)',marginBottom:6}}>Analyze any threat indicator</div>
+        <div style={{color:'var(--text-muted)',fontSize:13,maxWidth:400,margin:'0 auto',lineHeight:1.6,textWrap:'pretty'}}>Paste an IP address, domain, URL, file hash, email address, or CVE to query multiple threat intelligence sources at once.</div>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+        {EXAMPLES.map(ex=>(
+          <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s'}}>
+            {ex}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Centered layout ──────────────────────────────────────────────────────────
+  if (layout === 'centered') {
+    return (
+      <div style={{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {header}
+        {!hasResult && !loading ? (
+          <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'0 20px',gap:28}}>
+            <div style={{width:'100%',maxWidth:680}}>
+              <div style={{textAlign:'center',marginBottom:20}}>
+                <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:22,letterSpacing:'-0.03em',color:'var(--text)',marginBottom:6}}><BrandName accent={accent}/></div>
+                <div style={{color:'var(--text-muted)',fontSize:13}}>Paste any threat indicator to analyze across multiple intelligence sources</div>
+              </div>
+              {searchBar}
+            </div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+              {EXAMPLES.map(ex=>(
+                <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);}} style={{padding:'5px 12px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',transition:'all 0.15s',cursor:'pointer'}}>
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
+            <div style={{display:'flex',justifyContent:'center'}}>{searchBar}</div>
+            {loading && loadingView}
+            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && bulkResults && bulkView}
+          </div>
+        )}
+        <TweaksPanel>
+          <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+          <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+          <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+          <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
+        </TweaksPanel>
+      </div>
+    );
+  }
+
+  // ── Split layout ─────────────────────────────────────────────────────────────
+  if (layout === 'split') {
+    return (
+      <div style={{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {header}
+        <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+          <div style={{width:320,flexShrink:0,borderRight:'1px solid var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',padding:16,gap:12,overflowY:'auto'}}>
+            <div style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600}}>Indicator Input</div>
+            {searchBar}
+            <div style={{marginTop:8}}>
+              <div style={{fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:8}}>Quick Examples</div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {EXAMPLES.map(ex=>(
+                  <button key={ex} onClick={()=>{setQuery(ex);setBulkMode(false);runSearchFor(ex);}} style={{padding:'6px 10px',borderRadius:6,background:'var(--surface2)',border:'1px solid var(--border)',fontFamily:'var(--mono)',fontSize:11,color:'var(--text-muted)',textAlign:'left',transition:'all 0.1s'}}>
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
+            {loading && loadingView}
+            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && bulkResults && bulkView}
+            {!loading && !results && !bulkResults && emptyState}
+          </div>
+        </div>
+        <TweaksPanel>
+          <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+          <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+          <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+          <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
+        </TweaksPanel>
+      </div>
+    );
+  }
+
+  // ── Dashboard layout ──────────────────────────────────────────────────────────
+  return (
+    <div style={{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {header}
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        <nav style={{width:52,flexShrink:0,borderRight:'1px solid var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',paddingTop:12,gap:4}}>
+          {[['🔍','Search'],['📊','Dashboard'],['📁','Reports'],['⚙️','Settings']].map(([icon,label],i)=>(
+            <button key={i} title={label} style={{width:36,height:36,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,background:i===0?`${accent}18`:'transparent',color:i===0?accent:'var(--text-muted)',transition:'all 0.15s'}}>
+              {icon}
+            </button>
+          ))}
+        </nav>
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',background:'var(--surface)',display:'flex',alignItems:'center',gap:12}}>
+            {searchBar}
+          </div>
+          <div style={{flex:1,overflow:'auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>
+            {loading && loadingView}
+            {!loading && results && <ResultsPanel sources={results} val={query}/>}
+            {!loading && bulkResults && bulkView}
+            {!loading && !results && !bulkResults && emptyState}
+          </div>
+        </div>
+      </div>
+      <TweaksPanel>
+        <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+        <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+        <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+        <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
+      </TweaksPanel>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App/>);
