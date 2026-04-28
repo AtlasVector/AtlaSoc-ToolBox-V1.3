@@ -44,15 +44,17 @@ const ENDPOINT_MAP = {
 };
 
 const SOURCE_META = {
-  vt:      { name: 'VirusTotal',      icon: '🔬', url: 'virustotal.com' },
-  abuse:   { name: 'AbuseIPDB',       icon: '🛡',  url: 'abuseipdb.com' },
-  shodan:  { name: 'Shodan',          icon: '📡', url: 'shodan.io' },
-  otx:     { name: 'AlienVault OTX',  icon: '👁',  url: 'otx.alienvault.com' },
-  urlscan: { name: 'URLScan.io',      icon: '🌐', url: 'urlscan.io' },
-  whois:   { name: 'WHOIS / RDAP',    icon: '📋', url: 'rdap.org' },
-  bazaar:  { name: 'MalwareBazaar',   icon: '☣',  url: 'bazaar.abuse.ch' },
-  cve:     { name: 'NVD / NIST',      icon: '📊', url: 'nvd.nist.gov' },
+  vt:      { name: 'VirusTotal',      url: 'virustotal.com' },
+  abuse:   { name: 'AbuseIPDB',       url: 'abuseipdb.com' },
+  shodan:  { name: 'Shodan',          url: 'shodan.io' },
+  otx:     { name: 'AlienVault OTX',  url: 'otx.alienvault.com' },
+  urlscan: { name: 'URLScan.io',      url: 'urlscan.io' },
+  whois:   { name: 'WHOIS / RDAP',    url: 'rdap.org' },
+  bazaar:  { name: 'MalwareBazaar',   url: 'bazaar.abuse.ch' },
+  cve:     { name: 'NVD / NIST',      url: 'nvd.nist.gov' },
 };
+const faviconUrl = domain => `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+const SOURCE_FAVICON = Object.fromEntries(Object.values(SOURCE_META).map(m => [m.name, faviconUrl(m.url)]));
 
 async function fetchSource(endpoint, ioc, type) {
   try {
@@ -774,6 +776,7 @@ const ResultsPanel = ({sources, val, isCompact, accent}) => {
           return (
             <button key={s.source} onClick={()=>setTab(s.source)} style={{padding:'9px 14px',fontSize:12,fontWeight:600,color:isActive?accent:'var(--text-dim)',borderBottom:`2px solid ${isActive?accent:'transparent'}`,borderTop:`2px solid ${isActive?accent+'50':'transparent'}`,background:isActive?`${accent}10`:'transparent',whiteSpace:'nowrap',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
               <Dot status={s.status}/>
+              {SOURCE_FAVICON[s.source] && <img src={SOURCE_FAVICON[s.source]} width={13} height={13} style={{borderRadius:2,flexShrink:0}}/>}
               {s.source}
               {s._mock
                 ? <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(245,158,11,0.12)',color:'var(--amber)',border:'1px solid rgba(245,158,11,0.3)',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>
@@ -990,7 +993,7 @@ function App() {
                 const m = SOURCE_META[ep];
                 return m ? (
                   <span key={ep} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:4,background:'var(--surface2)',border:'1px solid var(--border2)',fontSize:11,color:'var(--text-dim)',fontWeight:500}}>
-                    {m.icon} {m.name}
+                    <img src={faviconUrl(m.url)} width={13} height={13} style={{borderRadius:2,flexShrink:0}}/> {m.name}
                   </span>
                 ) : null;
               })}
