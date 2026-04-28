@@ -283,6 +283,9 @@ export async function onRequest({ request, env, waitUntil }) {
 
   const url    = new URL(request.url);
   const route  = url.pathname.replace(/^\/api\//, '');
+
+  if (route === 'health') return json({ status: 'ok' });
+
   const ioc    = url.searchParams.get('ioc');
   const type   = url.searchParams.get('type');
 
@@ -294,8 +297,6 @@ export async function onRequest({ request, env, waitUntil }) {
   const kv = env.ATLASOC_CACHE;
 
   try {
-    if (route === 'health') return json({ status: 'ok' });
-
     const cacheKey = `${route}:${type}:${ioc.toLowerCase()}`;
 
     if (kv) {
