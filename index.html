@@ -907,10 +907,10 @@ function App() {
           </div>
         )}
         <TweaksPanel>
-          <TweakRadio id="theme" label="Theme" options={['dark','light']}/>
-          <TweakRadio id="layout" label="Layout" options={['centered','split','dashboard']}/>
-          <TweakColor id="accentColor" label="Accent Color"/>
-          <TweakRadio id="density" label="Density" options={['comfortable','compact']}/>
+          <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+          <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+          <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+          <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
         </TweaksPanel>
       </div>
     );
@@ -944,10 +944,10 @@ function App() {
           </div>
         </div>
         <TweaksPanel>
-          <TweakRadio id="theme" label="Theme" options={['dark','light']}/>
-          <TweakRadio id="layout" label="Layout" options={['centered','split','dashboard']}/>
-          <TweakColor id="accentColor" label="Accent Color"/>
-          <TweakRadio id="density" label="Density" options={['comfortable','compact']}/>
+          <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+          <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+          <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+          <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
         </TweaksPanel>
       </div>
     );
@@ -978,10 +978,10 @@ function App() {
         </div>
       </div>
       <TweaksPanel>
-        <TweakRadio id="theme" label="Theme" options={['dark','light']}/>
-        <TweakRadio id="layout" label="Layout" options={['centered','split','dashboard']}/>
-        <TweakColor id="accentColor" label="Accent Color"/>
-        <TweakRadio id="density" label="Density" options={['comfortable','compact']}/>
+        <TweakRadio label="Theme" value={tweaks.theme} options={['dark','light']} onChange={(v) => setTweak('theme', v)}/>
+        <TweakRadio label="Layout" value={tweaks.layout} options={['centered','split','dashboard']} onChange={(v) => setTweak('layout', v)}/>
+        <TweakColor label="Accent Color" value={tweaks.accentColor} onChange={(v) => setTweak('accentColor', v)}/>
+        <TweakRadio label="Density" value={tweaks.density} options={['comfortable','compact']} onChange={(v) => setTweak('density', v)}/>
       </TweaksPanel>
     </div>
   );
