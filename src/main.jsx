@@ -948,8 +948,8 @@ function App() {
       <div style={{display:'flex',alignItems:'center',gap:8}}>
         {hasResult && <Btn onClick={resetHome}>⌂ Home</Btn>}
         <Btn onClick={()=>setBulkMode(b=>!b)} active={bulkMode}>{bulkMode?'⊞ Bulk':'⊟ Single'}</Btn>
-        <button onClick={()=>setTweak('demoMode',!demoMode)} style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${demoMode?'rgba(245,158,11,0.5)':'var(--border2)'}`,background:demoMode?'rgba(245,158,11,0.1)':'var(--surface2)',color:demoMode?'var(--amber)':'var(--text-muted)',fontSize:11,fontWeight:700,letterSpacing:'0.06em',cursor:'pointer',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5}}>
-          <span style={{width:6,height:6,borderRadius:'50%',background:demoMode?'var(--amber)':'var(--text-muted)',display:'inline-block',flexShrink:0}}/>
+        <button onClick={()=>setTweak('demoMode',!demoMode)} style={{padding:'5px 10px',borderRadius:6,border:`1px solid ${demoMode?'rgba(245,158,11,0.5)':'var(--border2)'}`,background:demoMode?'rgba(245,158,11,0.1)':'rgba(16,185,129,0.08)',color:demoMode?'var(--amber)':'var(--safe)',fontSize:11,fontWeight:700,letterSpacing:'0.06em',cursor:'pointer',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5}}>
+          <span style={{width:6,height:6,borderRadius:'50%',background:demoMode?'var(--amber)':'var(--safe)',display:'inline-block',flexShrink:0}}/>
           {demoMode ? 'DEMO' : 'LIVE'}
         </button>
         {hasResult && <>
