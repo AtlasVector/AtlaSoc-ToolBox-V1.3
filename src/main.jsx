@@ -830,7 +830,7 @@ const LogoMark = ({size = 22}) => (
 );
 
 const BrandName = ({accent}) => (
-  <React.Fragment>Atlas<span style={{color:accent}}>Vec</span> <span style={{color:'var(--text-dim)',fontWeight:500}}>Kit</span>
+  <React.Fragment>Atla<span style={{color:accent}}>Soc</span>
   </React.Fragment>
 );
 
@@ -842,7 +842,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "layout": "centered",
   "accentColor": "#06b6d4",
   "density": "comfortable",
-  "demoMode": true
+  "demoMode": false
 }/*EDITMODE-END*/;
 
 function App() {
@@ -939,7 +939,7 @@ function App() {
   const header = (
     <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:`${isCompact?10:13}px 20px`,background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0,zIndex:10}}>
       <button onClick={resetHome} style={{display:'flex',alignItems:'center',gap:10,background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:8,transition:'background 0.15s'}}>
-        <LogoMark size={28} />
+        <LogoMark size={40} />
         <div style={{textAlign:'left'}}>
           <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:15,letterSpacing:'-0.02em',lineHeight:1,color:'var(--text)'}}><BrandName accent={accent}/></div>
           <div style={{fontFamily:'var(--font)',fontSize:9,color:'var(--text-muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginTop:2}}>Threat Intelligence</div>
