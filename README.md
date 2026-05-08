@@ -75,7 +75,6 @@ Or upload directly via [Cloudflare Dashboard](https://dash.cloudflare.com/):
 4. Add environment variables from your `.env`
 
 ## Project Structure
-
 ```
 AtlaSoc-ToolBox/
 ├── src/main.jsx             # Frontend (Preact)
@@ -89,7 +88,6 @@ AtlaSoc-ToolBox/
 ```
 
 ## Known Limitations
-
 - **Shodan** requires API key for IP intelligence
 - Some services have rate limits (handled by Cloudflare)
 - Hash lookups work best with SHA-256
@@ -98,7 +96,6 @@ AtlaSoc-ToolBox/
 I'm still fixing bugs and improving the tool. I want to add more sources, maybe MISP or internal SIEM feeds. I'm also looking at a simple timeline view for an IP to see how reports change over time. Automation is the top priority. Right now it's manual paste, but hooking it into a Discord bot or a Splunk alert action would make it way more useful during live hunting.
 
 ## Contributing
-
 This is a personal toolkit that evolves with my workflow. If you spot a bug or have an idea, open an issue or PR.
 
 ## License
