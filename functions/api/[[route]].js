@@ -76,6 +76,12 @@ async function handleVirusTotal(ioc, type, env) {
     'hash-md5': 'files', 'hash-sha1': 'files', 'hash-sha256': 'files',
     filename: 'files', email: 'domains',
   };
+  // VirusTotal GUI URL format (different from API endpoints)
+  const guiMap = {
+    ip: 'ip-address', ip6: 'ip-address', domain: 'domain', url: 'url',
+    'hash-md5': 'file', 'hash-sha1': 'file', 'hash-sha256': 'file',
+    filename: 'file', email: 'domain',
+  };
   let endpoint;
   if (type === 'url') {
     const encoded = btoa(ioc).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -101,8 +107,11 @@ async function handleVirusTotal(ioc, type, env) {
     .filter(([, v]) => v.category === 'malicious' || v.category === 'suspicious')
     .slice(0, 10)
     .map(([name, v]) => ({ name, result: v.result, category: v.category }));
+  const totalDetections = (stats.malicious || 0) + (stats.suspicious || 0);
+  const status = totalDetections === 0 ? 'clean' : totalDetections <= 3 ? 'suspicious' : 'malicious';
   return {
     source: 'VirusTotal',
+    status,
     detected: stats.malicious || 0,
     total: Object.values(stats).reduce((a,b)=>a+b,0) || 0,
     suspicious: stats.suspicious || 0,
@@ -115,7 +124,7 @@ async function handleVirusTotal(ioc, type, env) {
     fileType: meta.type_description || null,
     fileSize: meta.size ? `${Math.round(meta.size/1024)} KB` : null,
     firstSeen: meta.first_submission_date ? new Date(meta.first_submission_date*1000).toISOString().split('T')[0] : null,
-    permalink: `https://www.virustotal.com/gui/${typeMap[type]||'files'}/${ioc}`,
+    permalink: `https://www.virustotal.com/gui/${guiMap[type]||'file'}/${type === 'url' ? encoded : ioc}`,
     // IP/domain enrichment
     country: meta.country || null,
     asn: meta.asn || null,
@@ -150,6 +159,7 @@ async function handleAbuseIPDB(ip, env) {
     isWhitelisted: data.isWhitelisted,
     tor: data.isTor,
     ipVersion: data.ipVersion,
+    permalink: `https://www.abuseipdb.com/check/${ip}`,
     recentReports: (data.reports || []).slice(0, 5).map(r => ({
       date: r.reportedAt ? r.reportedAt.split('T')[0] : null,
       categories: r.categories || [],
@@ -181,35 +191,52 @@ async function handleShodan(ip, env) {
     tags: data.tags || [],
     lastSeen: data.last_update ? data.last_update.split('T')[0] : null,
     services: (data.data||[]).slice(0,10).map(s=>({ port:s.port, transport:s.transport, product:s.product||null, version:s.version||null })),
+    permalink: `https://www.shodan.io/host/${ip}`,
   };
 }
 
 async function handleOTX(ioc, type, env) {
-  const key = env.OTX_KEY || '';
-  const otxTypeMap = { ip:'IPv4', ip6:'IPv6', domain:'domain', url:'url', 'hash-md5':'file', 'hash-sha1':'file', 'hash-sha256':'file', email:'email', filename:'file' };
-  const otxType = otxTypeMap[type] || 'domain';
-  const res = await fetch(
-    `https://otx.alienvault.com/api/v1/indicators/${otxType}/${encodeURIComponent(ioc)}/general`,
-    { headers: key ? { 'X-OTX-API-KEY': key } : {}, signal: timeout(8000) }
-  );
-  if (!res.ok) return { error: `OTX returned ${res.status}` };
-  const data = await res.json();
-  return {
-    source: 'AlienVault OTX',
-    pulses: data?.pulse_info?.count || 0,
-    threatScore: data?.reputation || 0,
-    malwareFamilies: data?.pulse_info?.pulses?.flatMap(p=>p.malware_families||[]).slice(0,5) || [],
-    categories: data?.pulse_info?.pulses?.flatMap(p=>p.tags||[]).slice(0,8) || [],
-    adversaries: data?.pulse_info?.pulses?.flatMap(p=>p.adversary?[p.adversary]:[]).slice(0,3) || [],
-    relatedIndicators: data?.pulse_info?.related_indicator_count || 0,
-    firstSeen: data?.pulse_info?.pulses?.[0]?.created?.split('T')[0] || null,
-    lastSeen: data?.pulse_info?.pulses?.sort((a,b)=>new Date(b.modified)-new Date(a.modified))[0]?.modified?.split('T')[0] || null,
-  };
+  try {
+    const key = env.OTX_KEY || '';
+    const otxTypeMap = { ip:'IPv4', ip6:'IPv6', domain:'domain', url:'url', 'hash-md5':'file', 'hash-sha1':'file', 'hash-sha256':'file', email:'email', filename:'file' };
+    const otxType = otxTypeMap[type] || 'domain';
+    const res = await fetch(
+      `https://otx.alienvault.com/api/v1/indicators/${otxType}/${encodeURIComponent(ioc)}/general`,
+      { headers: key ? { 'X-OTX-API-KEY': key } : {}, signal: timeout(8000) }
+    );
+    if (!res.ok) return { error: `OTX returned ${res.status}` };
+    const data = await res.json();
+    return {
+      source: 'AlienVault OTX',
+      pulses: data?.pulse_info?.count || 0,
+      threatScore: data?.reputation || 0,
+      malwareFamilies: data?.pulse_info?.pulses?.flatMap(p=>p.malware_families||[]).slice(0,5) || [],
+      categories: data?.pulse_info?.pulses?.flatMap(p=>p.tags||[]).slice(0,8) || [],
+      adversaries: data?.pulse_info?.pulses?.flatMap(p=>p.adversary?[p.adversary]:[]).slice(0,3) || [],
+      relatedIndicators: data?.pulse_info?.related_indicator_count || 0,
+      firstSeen: data?.pulse_info?.pulses?.[0]?.created?.split('T')[0] || null,
+      lastSeen: data?.pulse_info?.pulses?.sort((a,b)=>new Date(b.modified)-new Date(a.modified))[0]?.modified?.split('T')[0] || null,
+      permalink: data?.pulse_info?.pulses?.[0] ? `https://otx.alienvault.com/pulse/${data.pulse_info.pulses[0].id}/` : `https://otx.alienvault.com/indicators/${otxType}/${encodeURIComponent(ioc)}/`,
+    };
+  } catch (e) {
+    return { error: `OTX timeout or unavailable: ${e.message}` };
+  }
 }
 
 async function handleURLScan(ioc, type, env) {
   const key = env.URLSCAN_KEY || '';
-  const q = type === 'domain' ? `domain:${ioc}` : `page.url:${ioc}`;
+  // For URLScan, search by domain extracted from URL, or direct URL
+  let q;
+  if (type === 'url') {
+    // Extract domain from URL for better search results
+    try {
+      q = new URL(ioc).hostname;
+    } catch {
+      q = ioc;
+    }
+  } else {
+    q = ioc;
+  }
   const searchRes = await fetch(
     `https://urlscan.io/api/v1/search/?q=${encodeURIComponent(q)}&size=1`,
     { headers: key ? { 'API-Key': key } : {}, signal: timeout(8000) }
@@ -272,13 +299,17 @@ async function handleWHOIS(ioc, type) {
     nameservers: data.nameservers?.map(ns=>ns.ldhName?.toLowerCase()) || [],
     cidr: data.cidr0_cidrs?.[0] ? `${data.cidr0_cidrs[0].v4prefix||data.cidr0_cidrs[0].v6prefix}/${data.cidr0_cidrs[0].length}` : null,
     asn: data.handle?.startsWith('AS') ? data.handle : null,
+    permalink: isIP ? `https://rdap.org/ip/${encodeURIComponent(ioc)}` : `https://rdap.org/domain/${encodeURIComponent(domain)}`,
   };
 }
 
-async function handleMalwareBazaar(hash) {
+async function handleMalwareBazaar(hash, env) {
   const res = await fetch('https://mb-api.abuse.ch/api/v1/', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Auth-Key': env.MALWAREBAZAAR_KEY || '',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
     body: `query=get_info&hash=${encodeURIComponent(hash)}`,
     signal: timeout(8000),
   });
@@ -294,6 +325,7 @@ async function handleMalwareBazaar(hash) {
     firstSeen: s?.first_seen?.split(' ')[0] || null,
     deliveryMethod: s?.delivery_method || null,
     reporter: s?.reporter || null,
+    permalink: `https://bazaar.abuse.ch/sample/${hash}/`,
   };
 }
 
@@ -358,6 +390,7 @@ async function handleCVE(cveId, env) {
           affectedProducts: cpes,
           cisaExploited: vuln.cisaExploitAdd ? true : false,
           cisaActionDue: vuln.cisaActionDue || null,
+          permalink: `https://nvd.nist.gov/vuln/detail/${vuln.id}`,
         };
       }
     }
@@ -374,8 +407,8 @@ async function handleCVE(cveId, env) {
       if (d && d.id) {
         const cvss3 = d.cvss3 || null;
         const cvss2 = d.cvss || null;
-        return {
-          source: 'NVD / NIST',
+          return {
+          source: 'CIRCL CVE Search',
           id: d.id,
           description: d.summary || null,
           published: d.Published?.split('T')[0] || null,
@@ -393,6 +426,7 @@ async function handleCVE(cveId, env) {
           references: (d.references || []).slice(0, 10).map(url => ({ url, source: null, tags: [] })),
           affectedProducts: (d.vulnerable_product || []).slice(0, 15),
           cisaExploited: false, cisaActionDue: null,
+          permalink: `https://cve.circl.lu/cve/${d.id}`,
         };
       }
     }
@@ -401,7 +435,42 @@ async function handleCVE(cveId, env) {
   return { error: `CVE ${id} not found in NVD or CIRCL` };
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+// ─── DNS-over-HTTPS (Cloudflare, free, no key) ─────────────────────────
+const DNS_TYPE_MAP = { 'A':1, 'NS':2, 'CNAME':5, 'SOA':6, 'MX':15, 'TXT':16, 'AAAA':28 };
+const DNS_TYPE_NAME = Object.fromEntries(Object.entries(DNS_TYPE_MAP).map(([n,v])=>[v,n]));
+
+async function handleDNS(domain) {
+  const types = ['A','AAAA','CNAME','MX','TXT','NS'];
+  const results = {};
+  await Promise.all(types.map(async (type) => {
+    try {
+      const res = await fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=${type}`,
+        { headers: { 'Accept': 'application/dns-json' }, signal: timeout(5000) }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        if (d.Answer && d.Answer.length > 0) {
+          results[type] = d.Answer.map(a => ({
+            name: a.name,
+            type: DNS_TYPE_NAME[a.type] || String(a.type),
+            TTL: a.TTL,
+            data: a.data
+          }));
+        }
+      }
+    } catch { /* ignore per-type failures */ }
+  }));
+  return {
+    source: 'DNS Lookup',
+    domain,
+    records: results,
+    queriedTypes: types,
+    found: Object.keys(results).length > 0,
+  };
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────
 export async function onRequest({ request, env, waitUntil }) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
   if (request.method !== 'GET') return err('Method not allowed', 405);
@@ -421,7 +490,7 @@ export async function onRequest({ request, env, waitUntil }) {
   if (!ioc || !type) return err('Missing params: ioc, type');
   if (ioc.length > 2048) return err('Indicator too long');
   if (!VALID_TYPES.has(type)) return err(`Invalid type: must be one of ${[...VALID_TYPES].join(', ')}`);
-  if (!/^[a-zA-Z0-9._:/@%+=?&\-[\]]+$/.test(ioc)) return err('Invalid indicator');
+  if (!/^[a-zA-Z0-9._:\/@%+=?&-]+$/.test(ioc)) return err('Invalid indicator');
 
   const kv = env.ATLASOC_CACHE;
 
@@ -436,13 +505,16 @@ export async function onRequest({ request, env, waitUntil }) {
     let result;
     switch (route) {
       case 'vt':      result = await handleVirusTotal(ioc, type, env); break;
-      case 'abuse':   result = await handleAbuseIPDB(ioc, env); break;
+      case 'abuse':
+        if (type !== 'ip' && type !== 'ip6') return err('AbuseIPDB only supports IP addresses');
+        result = await handleAbuseIPDB(ioc, env); break;
       case 'shodan':  result = await handleShodan(ioc, env); break;
       case 'otx':     result = await handleOTX(ioc, type, env); break;
       case 'urlscan': result = await handleURLScan(ioc, type, env); break;
       case 'whois':   result = await handleWHOIS(ioc, type); break;
-      case 'bazaar':  result = await handleMalwareBazaar(ioc); break;
+      case 'bazaar':  result = await handleMalwareBazaar(ioc, env); break;
       case 'cve':     result = await handleCVE(ioc, env); break;
+      case 'dns':     result = await handleDNS(ioc); break;
       default:        return err('Not found', 404);
     }
 

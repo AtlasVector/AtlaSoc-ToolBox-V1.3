@@ -55,6 +55,17 @@ const SOURCE_META = {
 };
 const faviconUrl = domain => `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 const SOURCE_FAVICON = Object.fromEntries(Object.values(SOURCE_META).map(m => [m.name, faviconUrl(m.url)]));
+const SOURCE_EMOJI = {
+  'VirusTotal': '📡',
+  'AbuseIPDB': '🔬',
+  'Shodan': '👽',
+  'AlienVault OTX': '🛰️',
+  'URLScan.io': '🔍',
+  'WHOIS / RDAP': '📋',
+  'MalwareBazaar': '🦠',
+  'NVD / NIST': '🛡️',
+  'DNS Lookup': '🌐',
+};
 
 async function fetchSource(endpoint, ioc, type) {
   try {
@@ -776,7 +787,7 @@ const ResultsPanel = ({sources, val, isCompact, accent}) => {
           return (
             <button key={s.source} onClick={()=>setTab(s.source)} style={{padding:'9px 14px',fontSize:12,fontWeight:600,color:isActive?accent:'var(--text-dim)',borderBottom:`2px solid ${isActive?accent:'transparent'}`,borderTop:`2px solid ${isActive?accent+'50':'transparent'}`,background:isActive?`${accent}10`:'transparent',whiteSpace:'nowrap',transition:'all 0.15s',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
               <Dot status={s.status}/>
-              {SOURCE_FAVICON[s.source] && <img src={SOURCE_FAVICON[s.source]} width={13} height={13} style={{borderRadius:2,flexShrink:0}}/>}
+              <span style={{fontSize:13}}>{SOURCE_EMOJI[s.source] || '🔍'}</span>
               {s.source}
               {s._mock
                 ? <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:'rgba(245,158,11,0.12)',color:'var(--amber)',border:'1px solid rgba(245,158,11,0.3)',fontWeight:700,letterSpacing:'0.05em'}}>DEMO</span>
@@ -840,7 +851,7 @@ const EXAMPLES = ['8.8.8.8','malicious.ru','https://phish.site/login','44d88612f
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "dark",
   "layout": "centered",
-  "accentColor": "#06b6d4",
+  "accentColor": "#f59e0b",
   "density": "comfortable",
   "demoMode": false
 }/*EDITMODE-END*/;
@@ -993,7 +1004,7 @@ function App() {
                 const m = SOURCE_META[ep];
                 return m ? (
                   <span key={ep} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px 8px',borderRadius:4,background:'var(--surface2)',border:'1px solid var(--border2)',fontSize:11,color:'var(--text-dim)',fontWeight:500}}>
-                    <img src={faviconUrl(m.url)} width={13} height={13} style={{borderRadius:2,flexShrink:0}}/> {m.name}
+                    <span style={{fontSize:13}}>{SOURCE_EMOJI[m.name] || ''}</span> {m.name}
                   </span>
                 ) : null;
               })}
