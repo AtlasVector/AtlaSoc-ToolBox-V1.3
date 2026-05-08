@@ -32,7 +32,7 @@ Threat intel toolkit that brings multiple sources together in one place. Paste a
 ### 1. Clone & Install
 ```bash
 git clone https://github.com/AtlasVector/AtlaSoc-ToolBox-V1.3
-cd AtlaSoc-ToolBox
+cd AtlaSoc-ToolBox-V1.3
 npm install
 ```
 
