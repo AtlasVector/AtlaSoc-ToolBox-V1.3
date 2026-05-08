@@ -90,9 +90,12 @@ AtlaSoc-ToolBox/
 
 ## Known Limitations
 
-- Shodan requires API key for IP intelligence
+- **Shodan** requires API key for IP intelligence
 - Some services have rate limits (handled by Cloudflare)
 - Hash lookups work best with SHA-256
+
+## Future plans
+I'm still fixing bugs and improving the tool. I want to add more sources, maybe MISP or internal SIEM feeds. I'm also looking at a simple timeline view for an IP to see how reports change over time. Automation is the top priority. Right now it's manual paste, but hooking it into a Discord bot or a Splunk alert action would make it way more useful during live hunting.
 
 ## Contributing
 
