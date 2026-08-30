@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<!-- frame-ancestors must be set as HTTP header (meta tag is ignored by spec) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;"/>
+<!-- Content-Security-Policy is set once, authoritatively, in _headers (Cloudflare enforces that; a duplicate <meta> tag here would only drift out of sync with it). -->
 <title>AtlaSoc Kit - Threat Intelligence Toolkit</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 96'%3E%3Cpath d='M40 2 L78 17 L78 50 C78 72 58 89 40 95 C22 89 2 72 2 50 L2 17 Z' fill='%2306b6d4'/%3E%3Cpath d='M40 2 L78 17 L78 50 C78 72 58 89 40 95 C22 89 2 72 2 50 L2 17 Z' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='40' cy='44' r='14' fill='none' stroke='%23ffffff' stroke-width='1' stroke-dasharray='7.5 4.5' opacity='0.75'/%3E%3Ccircle cx='40' cy='44' r='5.5' fill='none' stroke='%23ffffff' stroke-width='1' opacity='0.9'/%3E%3Ccircle cx='40' cy='44' r='2' fill='%23ffffff'/%3E%3C/svg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -42,7 +41,7 @@ input,textarea{font-family:var(--font);background:none;border:none;color:inherit
 <div id="root"></div>
 <style>
 @media print {
-  header button, .tweaks-panel { display: none !important; }
+  header button { display: none !important; }
 }
 </style>
 </body>
