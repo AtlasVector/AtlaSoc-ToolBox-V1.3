@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "esbuild src/main.jsx --bundle --minify --outfile=public/main.js --platform=browser",
-    "dev": "concurrently -n esbuild,wrangler -c blue,yellow \"esbuild src/main.jsx --bundle --outfile=public/main.js --platform=browser --watch\" \"wrangler pages dev public --port 8788\"",
+    "dev": "concurrently -n esbuild,wrangler -c blue,yellow \"esbuild src/main.jsx --bundle --outfile=public/main.js --platform=browser --watch\" \"wrangler dev --port 8788\"",
     "test": "node --test tests/**/*.test.mjs"
   },
   "dependencies": {
