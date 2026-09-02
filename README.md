@@ -61,9 +61,9 @@ Get free API keys:
 
 ### 3. Run Locally
 ```bash
-npm run build
-npx wrangler pages dev public --port 8788
+npm run dev
 ```
+This watches and rebuilds the frontend with esbuild while running the `/api/*` backend via `wrangler pages dev`, so both the UI and the live lookups work together.
 
 Open / visit :  `http://localhost:8788`
 

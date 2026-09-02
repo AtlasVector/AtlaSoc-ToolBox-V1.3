@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "esbuild src/main.jsx --bundle --minify --outfile=public/main.js --platform=browser",
-    "dev": "esbuild src/main.jsx --bundle --outfile=public/main.js --platform=browser --watch",
+    "dev": "concurrently -n esbuild,wrangler -c blue,yellow \"esbuild src/main.jsx --bundle --outfile=public/main.js --platform=browser --watch\" \"wrangler pages dev public --port 8788\"",
     "test": "node --test tests/**/*.test.mjs"
   },
   "dependencies": {
@@ -11,9 +11,13 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25"
+    "concurrently": "^10.0.5",
+    "esbuild": "^0.25",
+    "wrangler": "4.128.0"
   },
   "allowScripts": {
-    "esbuild@0.25.12": true
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "workerd@1.20260831.1": true
   }
 }
