@@ -68,8 +68,28 @@ async function fetchSource(endpoint, ioc, type) {
   }
 }
 
+// Session-level cache: re-analyzing the same indicator (re-clicking Analyze,
+// re-selecting an example, a duplicate in bulk mode) skips the network round
+// trip entirely instead of re-firing every source, even though the backend
+// may already have a fresh KV cache entry for each of them. Cleared on reload;
+// TTL is short since it only exists to absorb immediate repeats, not to
+// second-guess the backend's own per-source cache TTLs.
+const SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
+const sessionCache = new Map();
+
+function sessionCacheKey(val, type) {
+  return `${type}:${String(val).toLowerCase()}`;
+}
+
 export async function getLiveResults(val, type, onResult) {
   const t = type || detectType(val) || 'unknown';
+  const cacheKey = sessionCacheKey(val, t);
+  const cached = sessionCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < SESSION_CACHE_TTL_MS) {
+    onResult?.(cached.results);
+    return cached.results;
+  }
+
   const applicableEndpoints = Object.entries(ENDPOINT_MAP)
     .filter(([, types]) => types.includes(t))
     .map(([ep]) => ep);
@@ -90,5 +110,7 @@ export async function getLiveResults(val, type, onResult) {
   );
 
   const live = results.filter(Boolean);
-  return live.length ? live : [{ condition: 'endpoint_error', message: 'No live sources responded', source: SOURCE_META[applicableEndpoints[0]]?.name || 'Lookup' }];
+  const finalResults = live.length ? live : [{ condition: 'endpoint_error', message: 'No live sources responded', source: SOURCE_META[applicableEndpoints[0]]?.name || 'Lookup' }];
+  if (live.length) sessionCache.set(cacheKey, { at: Date.now(), results: finalResults });
+  return finalResults;
 }

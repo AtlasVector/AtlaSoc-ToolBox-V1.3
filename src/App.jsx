@@ -56,6 +56,7 @@ export default function App() {
   const [loading, setLoading] = React.useState(false);
   const [bulkResults, setBulkResults] = React.useState(null);
   const [bulkProgress, setBulkProgress] = React.useState(null);
+  const [resultsTotal, setResultsTotal] = React.useState(0);
   const [selectedBulk, setSelectedBulk] = React.useState(0);
   const [activeBulkSource, setActiveBulkSource] = React.useState(0);
 
@@ -73,12 +74,13 @@ export default function App() {
 
   const runSearchFor = async (val) => {
     const trimmed = val.trim();
-    if (!trimmed) return;
+    if (!trimmed || loading) return;
     const t = detectType(trimmed);
     setLoading(true);
     setResults(null);
     setBulkResults(null);
     setBulkProgress(null);
+    setResultsTotal(Object.values(ENDPOINT_MAP).filter(types => types.includes(t)).length);
     const live = await getLiveResults(trimmed, t, setResults);
     setResults(live);
     setLoading(false);
@@ -90,7 +92,7 @@ export default function App() {
 
   const runBulk = async () => {
     const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean).slice(0, 50);
-    if (!lines.length) return;
+    if (!lines.length || loading) return;
     setLoading(true);
     setResults(null);
     setBulkResults(null);
@@ -188,7 +190,7 @@ export default function App() {
                 <Badge label={IOC_LABELS[iocType]||iocType} color={accent} small/>
               </div>
             )}
-            <button onClick={runSearch} style={{margin:5,padding:'0 18px',height:38,borderRadius:8,background:accent,color:'#000',fontWeight:700,fontSize:12,letterSpacing:'0.03em',transition:'opacity 0.2s',opacity:query&&iocType&&iocType!=='unknown'?1:0.4,flexShrink:0}}>
+            <button onClick={runSearch} disabled={loading} style={{margin:5,padding:'0 18px',height:38,borderRadius:8,background:accent,color:'#000',fontWeight:700,fontSize:12,letterSpacing:'0.03em',transition:'opacity 0.2s',opacity:query&&iocType&&iocType!=='unknown'&&!loading?1:0.4,flexShrink:0}}>
               ANALYZE
             </button>
           </div>
@@ -220,7 +222,7 @@ export default function App() {
             style={{display:'block',width:'100%',padding:'12px 14px',fontSize:13,fontFamily:'var(--mono)',color:'var(--text)',background:'transparent',resize:'vertical'}}
           />
           <div style={{padding:'8px 10px',display:'flex',justifyContent:'flex-end',borderTop:'1px solid var(--border)'}}>
-            <button onClick={runBulk} style={{padding:'7px 20px',borderRadius:6,background:accent,color:'#000',fontWeight:700,fontSize:13}}>ANALYZE ALL</button>
+            <button onClick={runBulk} disabled={loading} style={{padding:'7px 20px',borderRadius:6,background:accent,color:'#000',fontWeight:700,fontSize:13,opacity:loading?0.5:1}}>ANALYZE ALL</button>
           </div>
         </div>
       )}
@@ -238,6 +240,16 @@ export default function App() {
     </div>
   );
 
+  // Sources resolve independently (backend fans out in parallel) and stream in
+  // via onResult as each one finishes — this banner lets the panel below render
+  // the moment the first source is back instead of waiting for the slowest one.
+  const partialLoadingBanner = loading && results && (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,fontSize:11,color:'var(--text-muted)'}}>
+      <div style={{width:12,height:12,borderRadius:'50%',border:'2px solid var(--border)',borderTopColor:accent,animation:'spin 0.8s linear infinite',flexShrink:0}}/>
+      Loading {results.length}/{resultsTotal} sources…
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // ── Bulk Results ─────────────────────────────────────────────────────────────
   const bulkView = bulkResults && (
@@ -336,8 +348,8 @@ export default function App() {
         ) : (
           <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
             <div style={{display:'flex',justifyContent:'center'}}>{searchBar}</div>
-            {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
+            {loading && !results && loadingView}
+            {results && <>{partialLoadingBanner}<ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/></>}
             {!loading && bulkResults && bulkView}
           </div>
         )}
@@ -366,8 +378,8 @@ export default function App() {
             </div>
           </div>
           <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',padding:16,gap:16}}>
-            {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
+            {loading && !results && loadingView}
+            {results && <>{partialLoadingBanner}<ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/></>}
             {!loading && bulkResults && bulkView}
             {!loading && !results && !bulkResults && emptyState}
           </div>
@@ -393,8 +405,8 @@ export default function App() {
             {searchBar}
           </div>
           <div style={{flex:1,overflow:'auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>
-            {loading && loadingView}
-            {!loading && results && <ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/>}
+            {loading && !results && loadingView}
+            {results && <>{partialLoadingBanner}<ResultsPanel sources={results} val={query} isCompact={isCompact} accent={accent}/></>}
             {!loading && bulkResults && bulkView}
             {!loading && !results && !bulkResults && emptyState}
           </div>
