@@ -72,18 +72,29 @@ export default function App() {
 
   const iocType = detectType(query);
 
+  // Guards re-entrancy synchronously: `loading` state is only visible to a new
+  // render, so two clicks fired before React re-renders (e.g. a fast
+  // double-click) could both read `loading === false` and both slip through.
+  // A ref is mutated immediately, closing that race regardless of render timing.
+  const inFlight = React.useRef(false);
+
   const runSearchFor = async (val) => {
     const trimmed = val.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || inFlight.current) return;
+    inFlight.current = true;
     const t = detectType(trimmed);
     setLoading(true);
     setResults(null);
     setBulkResults(null);
     setBulkProgress(null);
     setResultsTotal(Object.values(ENDPOINT_MAP).filter(types => types.includes(t)).length);
-    const live = await getLiveResults(trimmed, t, setResults);
-    setResults(live);
-    setLoading(false);
+    try {
+      const live = await getLiveResults(trimmed, t, setResults);
+      setResults(live);
+    } finally {
+      setLoading(false);
+      inFlight.current = false;
+    }
   };
 
   const runSearch = () => runSearchFor(query);
@@ -92,7 +103,8 @@ export default function App() {
 
   const runBulk = async () => {
     const lines = bulkText.split('\n').map(l=>l.trim()).filter(Boolean).slice(0, 50);
-    if (!lines.length || loading) return;
+    if (!lines.length || inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
     setResults(null);
     setBulkResults(null);
@@ -111,12 +123,16 @@ export default function App() {
         setBulkProgress({ done, total: lines.length });
       }
     };
-    await Promise.all(Array.from({ length: Math.min(BULK_CONCURRENCY, lines.length) }, worker));
-    setBulkResults(res);
-    setSelectedBulk(0);
-    setActiveBulkSource(0);
-    setLoading(false);
-    setBulkProgress(null);
+    try {
+      await Promise.all(Array.from({ length: Math.min(BULK_CONCURRENCY, lines.length) }, worker));
+      setBulkResults(res);
+      setSelectedBulk(0);
+      setActiveBulkSource(0);
+    } finally {
+      setLoading(false);
+      setBulkProgress(null);
+      inFlight.current = false;
+    }
   };
 
   const exportJSON = () => {
