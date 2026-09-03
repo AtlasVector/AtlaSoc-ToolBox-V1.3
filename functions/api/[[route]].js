@@ -122,7 +122,16 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function withRetry(fn, env) {
+// A request that timed out (AbortSignal.timeout / AbortController) already spent
+// its full `timeout(ms)` budget once; retrying it burns that same budget again
+// per attempt (up to MAX_RETRIES times) while the caller waits, for a source
+// that just proved itself slow. That's the dominant cause of multi-second
+// stalls on a single sluggish source, so timeouts fail fast instead of retrying.
+function isTimeoutError(e) {
+  return e?.name === 'AbortError' || e?.name === 'TimeoutError';
+}
+
+export async function withRetry(fn, env) {
   let attempt = 0;
   while (true) {
     try {
@@ -130,6 +139,7 @@ async function withRetry(fn, env) {
     } catch (e) {
       attempt++;
       if (attempt >= MAX_RETRIES) throw e;
+      if (isTimeoutError(e)) throw e;
       const status = e?.status || e?.response?.status;
       if (status >= 400 && status < 500 && status !== 429) throw e;
       const delay = BASE_RETRY_DELAY * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 250);
